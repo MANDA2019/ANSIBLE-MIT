@@ -1,5 +1,5 @@
 - name: Obtenir un certificat Let's Encrypt en standalone
-  hosts: local
+  hosts: tls_servers
   become: true
 
   vars:
