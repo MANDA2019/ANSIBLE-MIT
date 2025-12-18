@@ -1,0 +1,32 @@
+- name: Générer un certificat  auto-signé pour localhost 
+  hosts: local 
+  become: true 
+
+  vars:
+    cert_dir: /etc/ssl/localhost 
+    server_hostname: localhost 
+  tasks:
+    - name: Créer le dossier pour le certificat 
+      ansible.builtin.file: 
+         path: "{{ cert_dir}}"
+         state: directory
+         mode: "0755"
+    - name: Générer une clé privée 
+      community.crypto.openssl_privatekey:
+         path: "{{ cert_dir }}/privkey.pem"
+         size:  2048
+         type: RSA
+         mode: "0600"
+
+    - name: Générer une CSR
+      community.crypto.openssl_csr:
+         path: "{{ cert_dir }}/localhost.csr"
+         privatekey_path: "{{ cert_dir }}/privkey.pem"
+         common_name: "{{ server_hostname }}" 
+
+    - name: Générer un certificat auto-signé 
+      community.crypto.x509_certificate:
+         path: "{{ cert_dir }}/fullchain.pem"
+         privatekey_path: "{{ cert_dir }}/privkey.pem"
+         csr_path: "{{ cert_dir }}/localhost.csr"
+         provider: selfsigned

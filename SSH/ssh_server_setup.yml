@@ -1,0 +1,136 @@
+---
+- name: Configuration du serveur SSH
+  hosts: ssh_servers
+  become: true
+
+  vars:
+    ssh_port: 22
+    ssh_allow_users: []  # Liste des utilisateurs autorisés (vide = tous)
+    ssh_allow_groups: []  # Liste des groupes autorisés
+
+  tasks:
+    - name: Mettre à jour le cache APT
+      ansible.builtin.apt:
+        update_cache: yes
+        cache_valid_time: 3600
+
+    - name: Installer OpenSSH Server
+      ansible.builtin.apt:
+        name:
+          - openssh-server
+          - openssh-client
+        state: present
+
+    - name: S'assurer que le service SSH est démarré
+      ansible.builtin.service:
+        name: ssh
+        state: started
+        enabled: yes
+
+    - name: Créer une sauvegarde de sshd_config
+      ansible.builtin.copy:
+        src: /etc/ssh/sshd_config
+        dest: /etc/ssh/sshd_config.backup
+        remote_src: yes
+        force: no
+
+    - name: Configurer le port SSH
+      ansible.builtin.lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^#?Port '
+        line: 'Port {{ ssh_port }}'
+        state: present
+      notify: restart ssh
+
+    - name: Désactiver la connexion root
+      ansible.builtin.lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^#?PermitRootLogin '
+        line: 'PermitRootLogin no'
+        state: present
+      notify: restart ssh
+
+    - name: Activer l'authentification par clé publique
+      ansible.builtin.lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^#?PubkeyAuthentication '
+        line: 'PubkeyAuthentication yes'
+        state: present
+      notify: restart ssh
+
+    - name: Configurer l'emplacement des clés autorisées
+      ansible.builtin.lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^#?AuthorizedKeysFile '
+        line: 'AuthorizedKeysFile .ssh/authorized_keys'
+        state: present
+      notify: restart ssh
+
+    - name: Désactiver les mots de passe vides
+      ansible.builtin.lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^#?PermitEmptyPasswords '
+        line: 'PermitEmptyPasswords no'
+        state: present
+      notify: restart ssh
+
+    - name: Configurer le timeout de session
+      ansible.builtin.lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^#?ClientAliveInterval '
+        line: 'ClientAliveInterval 300'
+        state: present
+      notify: restart ssh
+
+    - name: Configurer le nombre max de tentatives
+      ansible.builtin.lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^#?ClientAliveCountMax '
+        line: 'ClientAliveCountMax 2'
+        state: present
+      notify: restart ssh
+
+    - name: Afficher le protocole SSH utilisé
+      ansible.builtin.lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^#?Protocol '
+        line: 'Protocol 2'
+        state: present
+      notify: restart ssh
+
+    - name: Vérifier la configuration SSH
+      ansible.builtin.command: sshd -t
+      changed_when: false
+      register: sshd_test
+
+    - name: Afficher le statut de la configuration
+      ansible.builtin.debug:
+        msg: "Configuration SSH valide"
+      when: sshd_test.rc == 0
+
+    - name: Ouvrir le port SSH dans le firewall (UFW)
+      ansible.builtin.ufw:
+        rule: allow
+        port: "{{ ssh_port }}"
+        proto: tcp
+      when: ansible_facts.services['ufw'] is defined
+      ignore_errors: true
+
+    - name: Afficher les informations de connexion
+      ansible.builtin.debug:
+        msg:
+          - "=========================================="
+          - "Serveur SSH configuré sur {{ inventory_hostname }}"
+          - "Port SSH: {{ ssh_port }}"
+          - "Connexion root: Désactivée"
+          - "Authentification par clé: Activée"
+          - "=========================================="
+          - "Pour vous connecter:"
+          - "  ssh -p {{ ssh_port }} {{ ansible_env.USER }}@{{ ansible_host }}"
+          - "=========================================="
+
+  handlers:
+    - name: restart ssh
+      ansible.builtin.service:
+        name: ssh
+        state: restarted

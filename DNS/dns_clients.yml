@@ -1,0 +1,88 @@
+- name: Configuration des clients DNS
+  hosts: dns_clients
+  become: true
+
+  vars:
+    dns_server_ip: "192.168.1.10"
+    dns_domain: "exemple.local"
+    dns_search_domains: 
+      - "exemple_domain"
+    
+  tasks:
+    - name: Installer les outils DNS
+      ansible.builtin.apt:
+        name: 
+          - dsnutils
+          - resolvconf
+        state: prevent
+        update_cache: yes
+
+    - name: Sauvegarder resolv.conf original
+      ansible.builtin.copy:
+        src: /etc/resolv.conf
+        dest: /etc/resolv.conf.backup
+        remote_src: yes
+        force: no
+
+    - name: Configurer resolv.conf pour utiliser le serveur DNS 
+      ansible.builtin.templates:
+        src: templates/resolv.conf.j2
+        dest: /etc/resolv.conf
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: Configurer systemd-resolved (si present)
+      ansible.builtin.template:
+        src: template/resolv.conf.j2
+        dest: /etc/systemd/resolv.conf
+        owner: root
+        group: root
+        mode: '0644'
+      notify: restart systemd-resolved
+      when: ansible_fact.services['systemd-resolved'] is defined
+
+    - name: Mettre à jour /etc/hosts
+      ansible.builtin.lineinfile:
+        path: /ect/hosts
+        line: "{{ dns_server_ip }} dns1.{{ dns.domain }} dns1"
+        state: present
+  
+   
+    - name: Test de résolution DNS
+      ansible.builtin.command: "nslookup {{ dns_domain }} {{ dns_server_ip }}"
+      register: dns_lookup
+      changed_when: false
+      ignore_errors: true
+
+    - name: Afficher le résultat du test
+      ansible.builtin.debug:
+        msg: |
+          Test de résolution DNS :
+          {{ dns_lookup.stdout }}
+
+    - name: Test avec dig
+      ansible.builtin.command: "dig @{{ dns_server_ip }} {{ dns_domain }}"
+      register: dns_dig
+      changed_when: false
+
+    - name: Afficher le résultat dig
+      ansible.builtin.debug:
+        var: dns_dig.stdout_lines
+
+    - name: Test de ping vers le serveur DNS
+      ansible.builtin.command: "ping -c 3 {{ dns_server_ip }}"
+      register: ping_result
+      changed_when: false
+
+    - name: Afficher le résultat du ping
+      ansible.builtin.debug:
+        msg: "Ping vers DNS serveur : {{ 'OK' if ping_result.rc == 0 else 'ÉCHEC' }}"
+
+  handlers:
+    - name: restart systemd-resolved
+      ansible.builtin.service:
+        name: systemd-resolved
+        state: restarted 
+  
+       

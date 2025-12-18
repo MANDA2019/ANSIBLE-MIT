@@ -1,0 +1,37 @@
+- name: Installer Certbot en local 
+  hosts: local 
+  become: true 
+  
+  tasks: 
+   # - name: Mettre à jour le cache APT 
+   #   ansible.builtin.apt:
+   #    update_cache: yes 
+    - name: Installer snapd 
+      ansible.builtin.apt:
+        name: snapd
+        state: present 
+
+    - name: Installer core via snap 
+      ansible.builtin.command: snap install core 
+      args: 
+        creates: /snap/core 
+
+    - name : Rafraîchir core 
+      ansible.builtin.command : snap refresh core 
+      
+    - name: Installer certbot via snap
+      ansible.builtin.command: snap install --classic certbot
+      args:
+        creates: /snap/bin/certbot
+
+    - name: Vérifier l'existence de /usr/bin/certbot 
+      ansible.builtin.stat: 
+        path: /usr/bin/certbot
+      register: certbot_bin
+
+    - name: Créer lien symbolique certbot si /usr/bin/certbot n'existe pas
+      ansible.builtin.file:
+        src: /snap/bin/certbot
+        dest: /usr/bin/certbot
+        state: link
+      when: not certbot_bin.stat.exists | default(false)

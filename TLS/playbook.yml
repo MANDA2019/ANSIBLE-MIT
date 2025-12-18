@@ -1,0 +1,13 @@
+- hosts: webservers 
+  become: true 
+  roles:
+    - role: geerlingguy.certbot
+      vars: 
+        certbot_admin_email: "mandamahatoky@gmail.com"
+        certbot_create_standalone_stop_services:
+          - nginx 
+        certbot_certs:
+          -domains:
+             - serveur1.exemple.com
+             - www.serveur1.exemple.com
+

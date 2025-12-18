@@ -1,0 +1,93 @@
+---
+- name: Gestion et déploiement des clés SSH
+  hosts: localhost
+  connection: local
+  become: false
+
+  vars:
+    ssh_key_type: "ed25519"  # ou rsa, ecdsa
+    ssh_key_size: 4096  # Pour RSA
+    ssh_key_comment: "ansible-generated-key"
+    ssh_key_path: "~/.ssh/id_{{ ssh_key_type }}"
+
+  tasks:
+    - name: Vérifier si la clé SSH existe déjà
+      ansible.builtin.stat:
+        path: "{{ ssh_key_path }}"
+      register: ssh_key_check
+
+    - name: Afficher le statut de la clé
+      ansible.builtin.debug:
+        msg: "Clé SSH trouvée: {{ ssh_key_check.stat.exists }}"
+
+    - name: Générer une nouvelle clé SSH si elle n'existe pas
+      ansible.builtin.command:
+        cmd: "ssh-keygen -t {{ ssh_key_type }} {% if ssh_key_type == 'rsa' %}-b {{ ssh_key_size }}{% endif %} -C '{{ ssh_key_comment }}' -f {{ ssh_key_path }} -N ''"
+      when: not ssh_key_check.stat.exists
+
+    - name: Lire la clé publique
+      ansible.builtin.slurp:
+        src: "{{ ssh_key_path }}.pub"
+      register: public_key
+
+    - name: Afficher la clé publique
+      ansible.builtin.debug:
+        msg:
+          - "=========================================="
+          - "Clé publique SSH générée:"
+          - "{{ public_key.content | b64decode }}"
+          - "=========================================="
+
+    - name: Sauvegarder la clé publique dans un fichier
+      ansible.builtin.copy:
+        content: "{{ public_key.content | b64decode }}"
+        dest: "./public_key.txt"
+
+- name: Déployer les clés SSH sur les serveurs
+  hosts: ssh_servers
+  become: true
+
+  vars:
+    ssh_user: "{{ ansible_user }}"
+    ssh_key_path: "~/.ssh/id_ed25519"
+
+  tasks:
+    - name: Créer le répertoire .ssh pour l'utilisateur
+      ansible.builtin.file:
+        path: "/home/{{ ssh_user }}/.ssh"
+        state: directory
+        owner: "{{ ssh_user }}"
+        group: "{{ ssh_user }}"
+        mode: '0700'
+
+    - name: Lire la clé publique locale
+      ansible.builtin.slurp:
+        src: "{{ ssh_key_path }}.pub"
+      register: local_public_key
+      delegate_to: localhost
+      become: false
+
+    - name: Déployer la clé publique sur le serveur
+      ansible.builtin.authorized_key:
+        user: "{{ ssh_user }}"
+        key: "{{ local_public_key.content | b64decode }}"
+        state: present
+        comment: "Ansible deployed key"
+
+    - name: Définir les permissions du fichier authorized_keys
+      ansible.builtin.file:
+        path: "/home/{{ ssh_user }}/.ssh/authorized_keys"
+        owner: "{{ ssh_user }}"
+        group: "{{ ssh_user }}"
+        mode: '0600'
+
+    - name: Afficher le message de succès
+      ansible.builtin.debug:
+        msg:
+          - "=========================================="
+          - "Clé SSH déployée sur {{ inventory_hostname }}"
+          - "Utilisateur: {{ ssh_user }}"
+          - "=========================================="
+          - "Test de connexion:"
+          - "  ssh {{ ssh_user }}@{{ ansible_host }}"
+          - "=========================================="

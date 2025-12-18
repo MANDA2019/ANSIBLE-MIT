@@ -1,0 +1,197 @@
+---
+- name: Sécurisation avancée du serveur SSH
+  hosts: ssh_servers
+  become: true
+
+  vars:
+    ssh_port: 2222  # Changer le port par défaut
+    ssh_max_auth_tries: 3
+    ssh_max_sessions: 2
+    ssh_allowed_users: []  # Ajouter les utilisateurs autorisés
+    ssh_denied_users: ["root"]
+    ssh_login_grace_time: 30
+
+  tasks:
+    - name: Sauvegarder la configuration actuelle
+      ansible.builtin.copy:
+        src: /etc/ssh/sshd_config
+        dest: "/etc/ssh/sshd_config.backup.{{ ansible_date_time.epoch }}"
+        remote_src: yes
+
+    - name: Désactiver l'authentification par mot de passe
+      ansible.builtin.lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^#?PasswordAuthentication '
+        line: 'PasswordAuthentication no'
+        state: present
+      notify: restart ssh
+
+    - name: Désactiver l'authentification Challenge-Response
+      ansible.builtin.lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^#?ChallengeResponseAuthentication '
+        line: 'ChallengeResponseAuthentication no'
+        state: present
+      notify: restart ssh
+
+    - name: Désactiver le forwarding X11
+      ansible.builtin.lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^#?X11Forwarding '
+        line: 'X11Forwarding no'
+        state: present
+      notify: restart ssh
+
+    - name: Changer le port SSH
+      ansible.builtin.lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^#?Port '
+        line: 'Port {{ ssh_port }}'
+        state: present
+      notify: restart ssh
+
+    - name: Limiter le nombre de tentatives d'authentification
+      ansible.builtin.lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^#?MaxAuthTries '
+        line: 'MaxAuthTries {{ ssh_max_auth_tries }}'
+        state: present
+      notify: restart ssh
+
+    - name: Limiter le nombre de sessions
+      ansible.builtin.lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^#?MaxSessions '
+        line: 'MaxSessions {{ ssh_max_sessions }}'
+        state: present
+      notify: restart ssh
+
+    - name: Définir le délai de grâce pour login
+      ansible.builtin.lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^#?LoginGraceTime '
+        line: 'LoginGraceTime {{ ssh_login_grace_time }}'
+        state: present
+      notify: restart ssh
+
+    - name: Désactiver le transfert de port
+      ansible.builtin.lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^#?AllowTcpForwarding '
+        line: 'AllowTcpForwarding no'
+        state: present
+      notify: restart ssh
+
+    - name: Désactiver l'agent forwarding
+      ansible.builtin.lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^#?AllowAgentForwarding '
+        line: 'AllowAgentForwarding no'
+        state: present
+      notify: restart ssh
+
+    - name: Configurer les algorithmes de chiffrement forts
+      ansible.builtin.lineinfile:
+        path: /etc/ssh/sshd_config
+        line: 'Ciphers chacha20-poly1305@openssh.com,aes256-gcm@openssh.com,aes128-gcm@openssh.com,aes256-ctr,aes192-ctr,aes128-ctr'
+        state: present
+      notify: restart ssh
+
+    - name: Configurer les MACs forts
+      ansible.builtin.lineinfile:
+        path: /etc/ssh/sshd_config
+        line: 'MACs hmac-sha2-512-etm@openssh.com,hmac-sha2-256-etm@openssh.com,hmac-sha2-512,hmac-sha2-256'
+        state: present
+      notify: restart ssh
+
+    - name: Configurer les KexAlgorithms forts
+      ansible.builtin.lineinfile:
+        path: /etc/ssh/sshd_config
+        line: 'KexAlgorithms curve25519-sha256,curve25519-sha256@libssh.org,diffie-hellman-group-exchange-sha256'
+        state: present
+      notify: restart ssh
+
+    - name: Désactiver le mode strict
+      ansible.builtin.lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^#?StrictModes '
+        line: 'StrictModes yes'
+        state: present
+      notify: restart ssh
+
+    - name: Installer fail2ban pour protection contre brute force
+      ansible.builtin.apt:
+        name: fail2ban
+        state: present
+
+    - name: Créer la configuration fail2ban pour SSH
+      ansible.builtin.copy:
+        content: |
+          [sshd]
+          enabled = true
+          port = {{ ssh_port }}
+          filter = sshd
+          logpath = /var/log/auth.log
+          maxretry = 3
+          bantime = 3600
+          findtime = 600
+        dest: /etc/fail2ban/jail.d/sshd.local
+        owner: root
+        group: root
+        mode: '0644'
+      notify: restart fail2ban
+
+    - name: Démarrer et activer fail2ban
+      ansible.builtin.service:
+        name: fail2ban
+        state: started
+        enabled: yes
+
+    - name: Mettre à jour le firewall pour le nouveau port
+      ansible.builtin.ufw:
+        rule: allow
+        port: "{{ ssh_port }}"
+        proto: tcp
+      when: ansible_facts.services['ufw'] is defined
+
+    - name: Supprimer l'ancienne règle firewall (port 22)
+      ansible.builtin.ufw:
+        rule: allow
+        port: "22"
+        proto: tcp
+        delete: yes
+      when: ansible_facts.services['ufw'] is defined and ssh_port != 22
+      ignore_errors: true
+
+    - name: Vérifier la configuration SSH
+      ansible.builtin.command: sshd -t
+      changed_when: false
+      register: sshd_check
+
+    - name: Afficher le résumé de sécurisation
+      ansible.builtin.debug:
+        msg:
+          - "=========================================="
+          - "Serveur SSH sécurisé"
+          - "=========================================="
+          - "Nouveau port SSH: {{ ssh_port }}"
+          - "Authentification par mot de passe: Désactivée"
+          - "Connexion root: Interdite"
+          - "Max tentatives: {{ ssh_max_auth_tries }}"
+          - "Fail2ban: Activé"
+          - "=========================================="
+          - "⚠IMPORTANT:"
+          - "Nouvelle commande de connexion:"
+          - "  ssh -p {{ ssh_port }} {{ ansible_user }}@{{ ansible_host }}"
+          - "=========================================="
+
+  handlers:
+    - name: restart ssh
+      ansible.builtin.service:
+        name: ssh
+        state: restarted
+
+    - name: restart fail2ban
+      ansible.builtin.service:
+        name: fail2ban
+        state: restarted

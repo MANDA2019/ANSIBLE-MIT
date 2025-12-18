@@ -1,0 +1,169 @@
+---
+- name: Configuration DNS simple en local avec dnsmasq
+  hosts: localhost
+  connection: local
+  become: true
+
+  vars:
+    dns_domain: "test.local"
+    dns_hosts:
+      - { name: "web", ip: "127.0.0.1" }
+      - { name: "api", ip: "127.0.0.2" }
+      - { name: "db", ip: "127.0.0.3" }
+
+  tasks:
+    - name: Attendre que apt soit disponible 
+      ansible.builtin.wait_for:
+        path: /var/lib/dpkg/lock-frontend
+        state: absent
+        timeout: 300
+      ignore_errors: true 
+ 
+    - name: Installer dnsmasq (DNS léger et simple)
+      ansible.builtin.apt:
+        name:
+          - dnsmasq
+          - dnsutils
+        state: present
+        update_cache: yes
+
+    - name: Arrêter systemd-resolved (conflit avec dnsmasq)
+      ansible.builtin.service:
+        name: systemd-resolved
+        state: stopped
+        enabled: no
+      ignore_errors: true
+
+    - name: Sauvegarder resolv.conf original
+      ansible.builtin.copy:
+        src: /etc/resolv.conf
+        dest: /etc/resolv.conf.backup
+        remote_src: yes
+        force: no
+      ignore_errors: true
+
+    - name: Configurer dnsmasq
+      ansible.builtin.copy:
+        content: |
+          # Configuration dnsmasq pour test local
+          # Écouter sur localhost
+          listen-address=127.0.0.1
+          
+          # Domaine local
+          domain={{ dns_domain }}
+          local=/{{ dns_domain }}/
+          
+          # Ne pas lire /etc/hosts
+          no-hosts
+          
+          # Fichier d'hôtes personnalisé
+          addn-hosts=/etc/dnsmasq.hosts
+          
+          # DNS en amont (Google DNS)
+          server=8.8.8.8
+          server=8.8.4.4
+          
+          # Cache DNS
+          cache-size=1000
+          
+          # Log les requêtes (utile pour debug)
+          log-queries
+          log-facility=/var/log/dnsmasq.log
+        dest: /etc/dnsmasq.conf
+        owner: root
+        group: root
+        mode: '0644'
+      notify: restart dnsmasq
+
+    - name: Créer le fichier hosts personnalisé
+      ansible.builtin.lineinfile:
+        path: /etc/dnsmasq.hosts
+        line: "{{ item.ip }}  {{ item.name }}.{{ dns_domain }}  {{ item.name }}"
+        create: yes
+        owner: root
+        group: root
+        mode: '0644'
+      loop: "{{ dns_hosts }}"
+      notify: restart dnsmasq
+
+    - name: Créer un nouveau resolv.conf
+      ansible.builtin.copy:
+        content: |
+          # Configuration DNS locale
+          nameserver 127.0.0.1
+        dest: /etc/resolv.conf
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: Démarrer et activer dnsmasq
+      ansible.builtin.service:
+        name: dnsmasq
+        state: started
+        enabled: yes
+
+    - name: Attendre que dnsmasq soit prêt
+      ansible.builtin.wait_for:
+        port: 53
+        timeout: 10
+
+    - name: Test 1 - Résolution du domaine principal
+      ansible.builtin.command: dig @127.0.0.1 {{ dns_domain }} +short
+      register: test_domain
+      changed_when: false
+
+    - name: Test 2 - Résolution de web.test.local
+      ansible.builtin.command: dig @127.0.0.1 web.{{ dns_domain }} +short
+      register: test_web
+      changed_when: false
+
+    - name: Test 3 - Résolution de api.test.local
+      ansible.builtin.command: dig @127.0.0.1 api.{{ dns_domain }} +short
+      register: test_api
+      changed_when: false
+
+    - name: Test 4 - Résolution externe (google.com)
+      ansible.builtin.command: dig @127.0.0.1 google.com +short
+      register: test_external
+      changed_when: false
+
+    - name: Test 5 - nslookup
+      ansible.builtin.command: nslookup web.{{ dns_domain }} 127.0.0.1
+      register: test_nslookup
+      changed_when: false
+      ignore_errors: true
+
+    - name: Afficher les résultats des tests
+      ansible.builtin.debug:
+        msg:
+          - "=========================================="
+          - "RÉSULTATS DES TESTS DNS"
+          - "=========================================="
+          - ""
+          - "✓ Test domaine principal: {{ test_domain.stdout | default('ÉCHEC') }}"
+          - "✓ Test web.{{ dns_domain }}: {{ test_web.stdout }}"
+          - "✓ Test api.{{ dns_domain }}: {{ test_api.stdout }}"
+          - "✓ Test résolution externe: {{ 'OK' if test_external.stdout else 'ÉCHEC' }}"
+          - ""
+          - "=========================================="
+          - "Commandes utiles:"
+          - "  - dig @127.0.0.1 web.{{ dns_domain }}"
+          - "  - ping web.{{ dns_domain }}"
+          - "  - sudo tail -f /var/log/dnsmasq.log"
+          - "  - sudo systemctl status dnsmasq"
+          - "=========================================="
+
+    - name: Vérifier le statut de dnsmasq
+      ansible.builtin.command: systemctl is-active dnsmasq
+      register: dnsmasq_status
+      changed_when: false
+
+    - name: Afficher le statut final
+      ansible.builtin.debug:
+        msg: "DNS local configuré avec succès ! Status: {{ dnsmasq_status.stdout }}"
+
+  handlers:
+    - name: restart dnsmasq
+      ansible.builtin.service:
+        name: dnsmasq
+        state: restarted

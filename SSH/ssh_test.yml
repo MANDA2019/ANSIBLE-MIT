@@ -1,0 +1,134 @@
+---
+- name: Tests de connexion SSH
+  hosts: localhost
+  connection: local
+  become: false
+
+  vars:
+    ssh_port: 22
+    test_servers:
+      - { host: "192.168.1.10", user: "ubuntu", port: 22 }
+      - { host: "192.168.1.11", user: "ubuntu", port: 22 }
+
+  tasks:
+    - name: Vérifier la disponibilité du port SSH sur les serveurs
+      ansible.builtin.wait_for:
+        host: "{{ item.host }}"
+        port: "{{ item.port }}"
+        timeout: 5
+        state: started
+      loop: "{{ test_servers }}"
+      register: port_check
+      ignore_errors: true
+
+    - name: Afficher le statut des ports
+      ansible.builtin.debug:
+        msg: "Port SSH {{ item.item.port }} sur {{ item.item.host }}: {{ 'OUVERT ✓' if item.failed == false else 'FERMÉ ✗' }}"
+      loop: "{{ port_check.results }}"
+
+    - name: Tester la connexion SSH avec clé
+      ansible.builtin.command:
+        cmd: "ssh -o BatchMode=yes -o ConnectTimeout=5 -p {{ item.port }} {{ item.user }}@{{ item.host }} echo 'SSH OK'"
+      loop: "{{ test_servers }}"
+      register: ssh_test
+      ignore_errors: true
+      changed_when: false
+
+    - name: Afficher les résultats des tests SSH
+      ansible.builtin.debug:
+        msg: "Connexion SSH à {{ item.item.user }}@{{ item.item.host }}: {{ 'SUCCÈS ✓' if item.rc == 0 else 'ÉCHEC ✗' }}"
+      loop: "{{ ssh_test.results }}"
+
+    - name: Vérifier la configuration SSH locale
+      ansible.builtin.command: ssh -V
+      register: ssh_version
+      changed_when: false
+
+    - name: Afficher la version SSH
+      ansible.builtin.debug:
+        msg: "Version SSH locale: {{ ssh_version.stderr }}"
+
+    - name: Lister les clés SSH disponibles
+      ansible.builtin.find:
+        paths: "~/.ssh"
+        patterns: "id_*"
+        file_type: file
+      register: ssh_keys
+
+    - name: Afficher les clés SSH trouvées
+      ansible.builtin.debug:
+        msg: "Clés SSH disponibles: {{ ssh_keys.files | map(attribute='path') | list }}"
+
+- name: Tests avancés sur les serveurs SSH
+  hosts: ssh_servers
+  become: true
+
+  tasks:
+    - name: Vérifier le statut du service SSH
+      ansible.builtin.service:
+        name: ssh
+        state: started
+      register: ssh_service
+
+    - name: Afficher le statut du service
+      ansible.builtin.debug:
+        msg: "Service SSH sur {{ inventory_hostname }}: {{ 'ACTIF ✓' if ssh_service.status.ActiveState == 'active' else 'INACTIF ✗' }}"
+
+    - name: Vérifier les connexions SSH actives
+      ansible.builtin.shell: "who | grep -c pts || echo 0"
+      register: active_connections
+      changed_when: false
+
+    - name: Afficher les connexions actives
+      ansible.builtin.debug:
+        msg: "Connexions SSH actives sur {{ inventory_hostname }}: {{ active_connections.stdout }}"
+
+    - name: Lire les dernières connexions SSH
+      ansible.builtin.command: last -n 10
+      register: last_logins
+      changed_when: false
+
+    - name: Afficher les dernières connexions
+      ansible.builtin.debug:
+        msg: "{{ last_logins.stdout_lines }}"
+
+    - name: Vérifier les tentatives échouées (auth.log)
+      ansible.builtin.shell: "grep 'Failed password' /var/log/auth.log | tail -5 || echo 'Aucune tentative échouée récente'"
+      register: failed_attempts
+      changed_when: false
+
+    - name: Afficher les tentatives échouées
+      ansible.builtin.debug:
+        msg: "{{ failed_attempts.stdout_lines }}"
+
+    - name: Tester la configuration SSH
+      ansible.builtin.command: sshd -t
+      register: sshd_test
+      changed_when: false
+
+    - name: Résultat du test de configuration
+      ansible.builtin.debug:
+        msg: "Configuration SSH: {{ 'VALIDE ✓' if sshd_test.rc == 0 else 'INVALIDE ✗' }}"
+
+    - name: Vérifier fail2ban (si installé)
+      ansible.builtin.command: fail2ban-client status sshd
+      register: fail2ban_status
+      changed_when: false
+      ignore_errors: true
+
+    - name: Afficher le statut de fail2ban
+      ansible.builtin.debug:
+        msg: "{{ fail2ban_status.stdout_lines }}"
+      when: fail2ban_status.rc == 0
+
+    - name: Générer un rapport de sécurité SSH
+      ansible.builtin.debug:
+        msg:
+          - "=========================================="
+          - "RAPPORT DE SÉCURITÉ SSH - {{ inventory_hostname }}"
+          - "=========================================="
+          - "Service SSH: {{ 'ACTIF ✓' if ssh_service.status.ActiveState == 'active' else 'INACTIF ✗' }}"
+          - "Configuration: {{ 'VALIDE ✓' if sshd_test.rc == 0 else 'INVALIDE ✗' }}"
+          - "Connexions actives: {{ active_connections.stdout }}"
+          - "Fail2ban: {{ 'ACTIF ✓' if fail2ban_status.rc == 0 else 'NON INSTALLÉ' }}"
+          - "=========================================="

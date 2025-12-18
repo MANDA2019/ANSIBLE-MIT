@@ -1,0 +1,89 @@
+---
+- name: Tester la configuration DNS locale
+  hosts: localhost
+  connection: local
+  become: false
+
+  vars:
+    dns_domain: "test.local"
+    test_hosts:
+      - "web"
+      - "api"
+      - "db"
+
+  tasks:
+    - name: Installer les outils de test si nécessaire
+      ansible.builtin.apt:
+        name: dnsutils
+        state: present
+      become: true
+
+    - name: Vérifier que dnsmasq est actif
+      ansible.builtin.command: systemctl is-active dnsmasq
+      register: dnsmasq_check
+      changed_when: false
+      ignore_errors: true
+
+    - name: Afficher le statut de dnsmasq
+      ansible.builtin.debug:
+        msg: "Status dnsmasq: {{ dnsmasq_check.stdout }}"
+
+    - name: Test de résolution pour chaque hôte
+      ansible.builtin.command: "dig @127.0.0.1 {{ item }}.{{ dns_domain }} +short"
+      register: dns_resolution
+      changed_when: false
+      loop: "{{ test_hosts }}"
+
+    - name: Afficher les résultats
+      ansible.builtin.debug:
+        msg: "{{ item.item }}.{{ dns_domain }} → {{ item.stdout }}"
+      loop: "{{ dns_resolution.results }}"
+
+    - name: Test de ping vers les hôtes
+      ansible.builtin.command: "ping -c 1 {{ item }}.{{ dns_domain }}"
+      register: ping_results
+      changed_when: false
+      ignore_errors: true
+      loop: "{{ test_hosts }}"
+
+    - name: Résumé des tests de ping
+      ansible.builtin.debug:
+        msg: "Ping {{ item.item }}.{{ dns_domain }}: {{ 'OK ✓' if item.rc == 0 else 'ÉCHEC ✗' }}"
+      loop: "{{ ping_results.results }}"
+
+    - name: Test de résolution externe
+      ansible.builtin.command: dig @127.0.0.1 google.com +short
+      register: external_test
+      changed_when: false
+
+    - name: Vérifier la résolution externe
+      ansible.builtin.debug:
+        msg: "Résolution externe (google.com): {{ 'OK ✓' if external_test.stdout else 'ÉCHEC ✗' }}"
+
+    - name: Lire les dernières requêtes DNS
+      ansible.builtin.command: tail -20 /var/log/dnsmasq.log
+      register: dns_logs
+      changed_when: false
+      become: true
+      ignore_errors: true
+
+    - name: Afficher les logs DNS récents
+      ansible.builtin.debug:
+        msg: "{{ dns_logs.stdout_lines }}"
+      when: dns_logs.rc == 0
+
+    - name: Résumé final
+      ansible.builtin.debug:
+        msg:
+          - "=========================================="
+          - "RÉSUMÉ DES TESTS DNS"
+          - "=========================================="
+          - "Serveur DNS: 127.0.0.1"
+          - "Domaine: {{ dns_domain }}"
+          - "Nombre d'hôtes testés: {{ test_hosts | length }}"
+          - ""
+          - "Commandes utiles:"
+          - "  dig @127.0.0.1 web.{{ dns_domain }}"
+          - "  ping api.{{ dns_domain }}"
+          - "  sudo tail -f /var/log/dnsmasq.log"
+          - "=========================================="

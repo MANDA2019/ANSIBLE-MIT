@@ -1,0 +1,5 @@
+# Configuration DNS par Ansible
+nameserver {{ dns_server_ip }}
+{% for domain in dns_search_domains %}
+search {{ domain }}
+{% endfor %}

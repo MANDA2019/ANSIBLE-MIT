@@ -1,0 +1,33 @@
+- name: Obtenir un certificat Let's Encrypt en standalone
+  hosts: local
+  become: true
+
+  vars:
+    certbot_email: "mandamahatoky@gmail.com"
+    certbot_domains:
+      - "ton-domaine.example.com"   # À remplacer plus tard par ton vrai domaine
+    certbot_staging: true           # true = test (staging), false = prod
+
+  tasks:
+    - name: Arrêter les services qui utilisent les ports 80/443 (si besoin)
+      ansible.builtin.service:
+        name: nginx
+        state: stopped
+      ignore_errors: true
+
+    - name: Lancer certbot en mode standalone (test)
+      ansible.builtin.command: >
+        certbot certonly
+        --non-interactive
+        --agree-tos
+        -m {{ certbot_email }}
+        --standalone
+        --preferred-challenges http
+        {% for d in certbot_domains %}-d {{ d }} {% endfor %}
+        {% if certbot_staging %}--staging{% endif %}
+      args:
+        creates: "/etc/letsencrypt/live/{{ certbot_domains[0] }}/fullchain.pem"
+
+    - name: Afficher l'emplacement des fichiers générés
+      ansible.builtin.debug:
+        msg: "Certificat (fullchain.pem) et clé (privkey.pem) dans /etc/letsencrypt/live/{{ certbot_domains[0] }}"
