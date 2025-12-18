@@ -1,0 +1,14 @@
+---
+- hosts: localhost  # Garde localhost pour config client LOCAL
+  tasks:
+    - name: Générer clé SSH client
+      openssh_keypair:
+        path: ~/.ssh/id_rsa
+        type: rsa
+        size: 4096
+
+    - name: Configurer ssh_config client
+      template:
+        src: ssh_config.j2
+        dest: ~/.ssh/config
+        mode: '0600'
