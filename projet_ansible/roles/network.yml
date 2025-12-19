@@ -1,0 +1,50 @@
+---
+# Rôle: Configuration automatique des adresses IP
+# Ce rôle configure les adresses IP statiques sur les serveurs et routeurs
+
+- name: Sauvegarder la configuration réseau existante
+  copy:
+    src: /etc/netplan/
+    dest: /etc/netplan.backup/
+    remote_src: yes
+  ignore_errors: yes
+
+- name: Configurer l'adresse IP statique (Ubuntu/Debian avec Netplan)
+  copy:
+    dest: /etc/netplan/01-static-ip.yaml
+    content: |
+      network:
+        version: 2
+        renderer: networkd
+        ethernets:
+          {{ interface_name }}:
+            dhcp4: no
+            addresses:
+              - {{ new_ip }}/{{ netmask | default('24') }}
+            routes:
+              - to: default
+                via: {{ gateway }}
+            nameservers:
+              addresses:
+                - {{ dns }}
+                - {{ dns_secondary | default('8.8.4.4') }}
+    mode: '0644'
+  when: ansible_os_family == "Debian"
+  notify: Appliquer netplan
+
+- name: Configurer l'adresse IP statique (CentOS/RHEL)
+  template:
+    src: ifcfg-eth.j2
+    dest: '/etc/sysconfig/network-scripts/ifcfg-{{ interface_name }}'
+  when: ansible_os_family == "RedHat"
+  notify: Redémarrer NetworkManager
+
+- name: handlers
+  handlers:
+    - name: Appliquer netplan
+      command: netplan apply
+
+- name: Redémarrer NetworkManager
+  service:
+    name: NetworkManager
+    state: restarted

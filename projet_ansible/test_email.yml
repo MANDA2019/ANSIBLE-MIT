@@ -1,0 +1,97 @@
+---
+# ============================================
+# TEST D'ENVOI D'EMAIL
+# ============================================
+# Ce playbook teste la fonctionnalité d'envoi d'email
+#
+# AVANT D'EXÉCUTER:
+# 1. Modifiez secret.yml avec votre email et mot de passe
+# 2. Pour Gmail, créez un "App Password" (voir instructions dans secret.yml)
+#
+# COMMANDE:
+#   ansible-playbook test_email.yml --ask-become-pass
+
+- name: Test d'envoi d'email
+  hosts: localhost
+  connection: local
+  become: no
+  vars_files:
+    - secret.yml
+
+  vars:
+    # Configuration email (depuis group_vars/remote.yml)
+    smtp_host: 'smtp.gmail.com'
+    smtp_port: 587
+    smtp_user: '{{ email_address }}'
+    smtp_password: '{{ email_password }}'
+    email_to: '{{ email_address }}'
+
+  tasks:
+    - name: '📧 Vérification de la configuration email'
+      debug:
+        msg: |
+          Configuration actuelle:
+          - Serveur SMTP: {{ smtp_host }}:{{ smtp_port }}
+          - Email: {{ email_address }}
+          - Mot de passe: {{ '***' + email_password[-4:] if email_password != 'xxxx xxxx xxxx xxxx' else '⚠️ NON CONFIGURÉ' }}
+
+    - name: "⚠️ Vérifier si l'email est configuré"
+      fail:
+        msg: |
+
+          ❌ EMAIL NON CONFIGURÉ!
+
+          Vous devez modifier le fichier secret.yml:
+          1. Remplacez 'votre.email@gmail.com' par votre vraie adresse
+          2. Remplacez 'xxxx xxxx xxxx xxxx' par votre App Password Gmail
+
+          Pour créer un App Password Gmail:
+          → https://myaccount.google.com/apppasswords
+
+      when: email_address == 'votre.email@gmail.com' or email_password == 'xxxx xxxx xxxx xxxx'
+
+    - name: "📤 Envoi de l'email de test..."
+      community.general.mail:
+        host: '{{ smtp_host }}'
+        port: '{{ smtp_port }}'
+        username: '{{ smtp_user }}'
+        password: '{{ smtp_password }}'
+        to: '{{ email_to }}'
+        subject: '🧪 Test Ansible - Email de test'
+        subtype: html
+        body: |
+          <html>
+          <body style="font-family: Arial, sans-serif; padding: 20px;">
+            <div style="max-width: 500px; margin: auto; background: #f0f0f0; padding: 30px; border-radius: 10px;">
+              <h1 style="color: #27ae60; text-align: center;">✅ Test Réussi!</h1>
+              <p style="text-align: center; font-size: 18px;">
+                Votre configuration email fonctionne correctement.
+              </p>
+              <hr style="border: 1px solid #ddd;">
+              <p><strong>📅 Date:</strong> {{ ansible_date_time.iso8601 }}</p>
+              <p><strong>🖥️ Ordinateur:</strong> {{ ansible_hostname }}</p>
+              <p><strong>💻 Système:</strong> {{ ansible_distribution | default('Linux') }}</p>
+              <hr style="border: 1px solid #ddd;">
+              <p style="text-align: center; color: #666; font-size: 12px;">
+                Cet email a été envoyé automatiquement par Ansible.<br>
+                Projet L2 - Maharavo
+              </p>
+            </div>
+          </body>
+          </html>
+      register: email_result
+
+    - name: '✅ Résultat'
+      debug:
+        msg: |
+
+          ╔═══════════════════════════════════════════╗
+          ║      ✅ EMAIL ENVOYÉ AVEC SUCCÈS!        ║
+          ╠═══════════════════════════════════════════╣
+          ║                                           ║
+          ║  Vérifiez votre boîte de réception:      ║
+          ║  📧 {{ email_address }}
+          ║                                           ║
+          ║  (Regardez aussi dans les Spams)         ║
+          ║                                           ║
+          ╚═══════════════════════════════════════════╝

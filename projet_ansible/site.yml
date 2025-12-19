@@ -1,0 +1,87 @@
+---
+# ============================================
+# PLAYBOOK PRINCIPAL - MAINTENANCE COMPLÈTE
+# ============================================
+# Ce playbook exécute toutes les tâches de maintenance
+# sur tous les hôtes distants
+
+- name: Maintenance complète du système
+  hosts: remote
+  become: true
+  vars_files:
+    - secret.yml
+
+  tasks:
+    # 1. Mise à jour du système
+    - name: Inclure le rôle de mise à jour
+      include_tasks: roles/update.yml
+      tags: update
+
+    # 2. Nettoyage des logs et fichiers temporaires
+    - name: Inclure le rôle de nettoyage
+      include_tasks: roles/cleanup.yml
+      tags: cleanup
+
+    # 3. Configuration réseau (IP statique)
+    - name: Inclure le rôle réseau
+      include_tasks: roles/network.yml
+      tags: network
+      when: configure_network | default(false)
+
+    # 4. Installation et configuration MariaDB
+    - name: Inclure le rôle MariaDB
+      include_tasks: roles/mariadb.yml
+      tags: mariadb
+      when: install_mariadb | default(false)
+
+    # 5. Envoyer notification par email
+    - name: Inclure le rôle de notification
+      include_tasks: roles/notification.yml
+      tags: notification
+      when: send_notification | default(true)
+      vars:
+        tasks_executed: 'Maintenance complète (update, cleanup, network, mariadb)'
+
+# ============================================
+# PLAYBOOKS INDIVIDUELS PAR TÂCHE
+# ============================================
+
+# Playbook uniquement pour la mise à jour
+- name: Mise à jour uniquement
+  hosts: remote
+  become: true
+  vars_files:
+    - secret.yml
+  tags: [never, update-only]
+
+  tasks:
+    - include_tasks: roles/update.yml
+
+# Playbook uniquement pour le nettoyage
+- name: Nettoyage uniquement
+  hosts: remote
+  become: true
+  tags: [never, cleanup-only]
+
+  tasks:
+    - include_tasks: roles/cleanup.yml
+
+# Playbook uniquement pour le réseau
+- name: Configuration réseau uniquement
+  hosts: remote
+  become: true
+  tags: [never, network-only]
+
+  tasks:
+    - include_tasks: roles/network.yml
+
+# Playbook uniquement pour MariaDB
+- name: Installation MariaDB uniquement
+  hosts: remote
+  become: true
+  vars_files:
+    - secret.yml
+  tags: [never, mariadb-only]
+
+  tasks:
+    - include_tasks: roles/mariadb.yml

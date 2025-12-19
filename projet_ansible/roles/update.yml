@@ -1,0 +1,20 @@
+---
+# Rôle: Mise à jour automatique du système
+# Ce rôle met à jour tous les paquets du système
+
+- name: Mise à jour du cache APT
+  apt:
+    update_cache: yes
+    cache_valid_time: 3600
+
+- name: Mise à jour complète du système
+  apt:
+    upgrade: dist
+    autoremove: yes
+    autoclean: yes
+  register: update_result
+
+- name: Afficher le résultat de la mise à jour
+  debug:
+    msg: 'Mise à jour terminée avec succès'
+  when: update_result.changed
