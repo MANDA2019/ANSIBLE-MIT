@@ -1,6 +1,6 @@
 # ANSIBLE-MIT
 
-**Automatisation réseau MIT** - DNS, SSH, TLS pour Madagascar Institut de Technologie.
+**Automatisation réseau MIT** - DNS, SSH, TLS pour Mention Informatique et Technologie.
 
 [![GitHub stars](https://img.shields.io/github/stars/MANDA2019/ANSIBLE-MIT)](https://github.com/MANDA2019/ANSIBLE-MIT)
 
