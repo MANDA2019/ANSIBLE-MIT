@@ -1,0 +1,98 @@
+---
+# ============================================
+# PLAYBOOK DE TEST SIMPLE POUR DÉBUTANT
+# ============================================
+# Ce fichier exécute des tâches simples sur votre PC
+#
+# Pour l'exécuter:
+#   ansible-playbook test_simple.yml --ask-become-pass
+#
+# Puis entrez votre mot de passe sudo
+
+- name: Test Simple sur mon PC
+  hosts: localhost # Exécuter sur mon PC
+  connection: local # Connexion locale (pas SSH)
+  become: yes # Utiliser sudo
+
+  tasks:
+    # ========================================
+    # TÂCHE 1: Afficher un message
+    # ========================================
+    - name: 'Étape 1 - Dire bonjour'
+      debug:
+        msg: '👋 Bonjour! Ansible fonctionne sur votre PC!'
+
+    # ========================================
+    # TÂCHE 2: Afficher la date
+    # ========================================
+    - name: 'Étape 2 - Afficher la date actuelle'
+      command: date
+      register: date_result
+      changed_when: false
+
+    - name: 'Étape 2 - Résultat'
+      debug:
+        msg: '📅 Date actuelle: {{ date_result.stdout }}'
+
+    # ========================================
+    # TÂCHE 3: Afficher l'espace disque
+    # ========================================
+    - name: "Étape 3 - Vérifier l'espace disque"
+      command: df -h /
+      register: disk_result
+      changed_when: false
+
+    - name: 'Étape 3 - Résultat'
+      debug:
+        msg: "💾 Espace disque:\n{{ disk_result.stdout }}"
+
+    # ========================================
+    # TÂCHE 4: Créer un fichier de test
+    # ========================================
+    - name: 'Étape 4 - Créer un fichier de test'
+      copy:
+        content: |
+          Ce fichier a été créé par Ansible!
+          Date de création: {{ ansible_date_time.iso8601 }}
+          Nom de l'ordinateur: {{ ansible_hostname }}
+        dest: /tmp/test_ansible.txt
+        mode: '0644'
+
+    - name: 'Étape 4 - Confirmer la création'
+      debug:
+        msg: '📄 Fichier /tmp/test_ansible.txt créé avec succès!'
+
+    # ========================================
+    # TÂCHE 5: Lire le fichier créé
+    # ========================================
+    - name: 'Étape 5 - Lire le fichier créé'
+      command: cat /tmp/test_ansible.txt
+      register: file_content
+      changed_when: false
+
+    - name: 'Étape 5 - Contenu du fichier'
+      debug:
+        msg: "📖 Contenu:\n{{ file_content.stdout }}"
+
+    # ========================================
+    # RÉSUMÉ FINAL
+    # ========================================
+    - name: '🎉 TEST TERMINÉ'
+      debug:
+        msg: |
+
+          ╔════════════════════════════════════════╗
+          ║     ✅ TOUS LES TESTS ONT RÉUSSI!     ║
+          ╠════════════════════════════════════════╣
+          ║                                        ║
+          ║  Vous avez appris que Ansible peut:   ║
+          ║  • Afficher des messages              ║
+          ║  • Exécuter des commandes             ║
+          ║  • Créer des fichiers                 ║
+          ║  • Lire des fichiers                  ║
+          ║                                        ║
+          ║  Prochaine étape:                     ║
+          ║  Créer des machines virtuelles        ║
+          ║  pour tester sur plusieurs PCs!       ║
+          ║                                        ║
+          ╚════════════════════════════════════════╝

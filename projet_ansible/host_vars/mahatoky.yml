@@ -1,0 +1,4 @@
+# Variables pour mahatoky
+ansible_become: true
+ansible_become_method: sudo
+ansible_become_password: '140724'

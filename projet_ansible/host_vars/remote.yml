@@ -1,0 +1,10 @@
+configure_network: true
+databases:
+- encoding: utf8mb4
+  name: example
+dns: 8.8.8.8
+gateway: ''
+install_mariadb: true
+interface_name: ens33
+netmask: '24'
+new_ip: ''
