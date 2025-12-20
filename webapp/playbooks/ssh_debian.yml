@@ -1,0 +1,73 @@
+---
+- name: 🔐 Configuration SSH (Debian/Ubuntu uniquement)
+  hosts: all
+  become: yes
+  
+  vars:
+    ansible_python_interpreter: /usr/local/bin/python3.13
+  
+  tasks:
+    - name: Vérifier que c'est Debian/Ubuntu
+      fail:
+        msg: "Ce playbook ne fonctionne que sur Debian/Ubuntu"
+      when: ansible_os_family != "Debian"
+      
+    - name: Mettre à jour le cache apt
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+        
+    - name: Installer les paquets nécessaires
+      apt:
+        name:
+          - openssh-server
+          - python3-apt
+        state: present
+        
+    - name: S'assurer que le service SSH est démarré
+      systemd:
+        name: ssh
+        state: started
+        enabled: yes
+        
+    - name: Configurer SSH - Désactiver root login
+      lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^#?PermitRootLogin'
+        line: 'PermitRootLogin no'
+        state: present
+      notify: Restart SSH
+        
+    - name: Configurer SSH - Activer authentification par mot de passe
+      lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^#?PasswordAuthentication'
+        line: 'PasswordAuthentication yes'
+        state: present
+      notify: Restart SSH
+        
+    - name: Configurer SSH - Port 22
+      lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^#?Port'
+        line: 'Port 22'
+        state: present
+      notify: Restart SSH
+      
+    - name: Résultat SSH
+      debug:
+        msg:
+          - "================================"
+          - "  ✅ SSH CONFIGURÉ"
+          - "================================"
+          - "Service SSH: Actif"
+          - "Port: 22"
+          - "Root login: Désactivé"
+          - "Password auth: Activée"
+          - "================================"
+  
+  handlers:
+    - name: Restart SSH
+      systemd:
+        name: ssh
+        state: restarted

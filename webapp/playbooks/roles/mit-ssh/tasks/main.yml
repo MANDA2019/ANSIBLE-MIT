@@ -1,0 +1,52 @@
+---
+- name: Mettre à jour les paquets (Arch Linux)
+  pacman:
+    update_cache: yes
+  become: yes
+  when: ansible_os_family == "Archlinux"
+
+- name: Mettre à jour apt (Debian/Ubuntu)
+  apt:
+    update_cache: yes
+    cache_valid_time: 3600
+  become: yes
+  when: ansible_os_family == "Debian"
+
+- name: Installer OpenSSH Server (Arch Linux)
+  pacman:
+    name: openssh
+    state: present
+  become: yes
+  when: ansible_os_family == "Archlinux"
+
+- name: Installer OpenSSH Server (Debian/Ubuntu)
+  apt:
+    name: openssh-server
+    state: present
+  become: yes
+  when: ansible_os_family == "Debian"
+
+- name: S'assurer que le service SSH est démarré
+  systemd:
+    name: sshd
+    state: started
+    enabled: yes
+  become: yes
+
+- name: Configurer SSH - Désactiver root login
+  lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: '^#?PermitRootLogin'
+    line: 'PermitRootLogin no'
+    state: present
+  notify: Restart SSH
+  become: yes
+
+- name: Configurer SSH - Activer authentification par mot de passe
+  lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: '^#?PasswordAuthentication'
+    line: 'PasswordAuthentication yes'
+    state: present
+  notify: Restart SSH
+  become: yes

@@ -1,0 +1,143 @@
+---
+- name: 🌍 Configuration DNS avec gestion des conflits
+  hosts: dns_servers
+  become: yes
+  
+  vars:
+    dns_type: "{{ dns_type | default('dnsmasq') }}"  # 'dnsmasq' ou 'bind9'
+    install_dns: "{{ install_dns | default(true) }}"
+    
+  pre_tasks:
+    - name: Afficher le type de DNS à installer
+      debug:
+        msg: "Installation de {{ dns_type }} (install_dns={{ install_dns }})"
+      
+    - name: Vérifier la distribution
+      fail:
+        msg: "❌ Ce playbook est pour Debian/Ubuntu uniquement (détecté: {{ ansible_os_family }})"
+      when: ansible_os_family != "Debian"
+  
+  tasks:
+    # ==========================================
+    # GESTION DES CONFLITS DNS
+    # ==========================================
+    - name: Bloc - Arrêt des services DNS conflictuels
+      when: install_dns | bool
+      block:
+        - name: Détecter les services DNS actifs
+          shell: |
+            for service in dnsmasq named bind9 systemd-resolved; do
+              if systemctl is-active --quiet $service 2>/dev/null; then
+                echo "$service"
+              fi
+            done
+          register: active_dns_services
+          changed_when: false
+          ignore_errors: yes
+        
+        - name: Afficher les services DNS détectés
+          debug:
+            msg: "Services DNS actifs détectés: {{ active_dns_services.stdout_lines | default(['aucun']) }}"
+        
+        - name: Arrêter les services DNS conflictuels
+          systemd:
+            name: "{{ item }}"
+            state: stopped
+            enabled: no
+          loop:
+            - systemd-resolved
+            - named
+            - bind9
+            - dnsmasq
+          when: 
+            - item != dns_type
+            - item in (active_dns_services.stdout_lines | default([]))
+          ignore_errors: yes
+        
+        - name: Forcer la libération du port 53
+          shell: |
+            # Tuer les processus persistants
+            pkill -9 dnsmasq 2>/dev/null || true
+            pkill -9 named 2>/dev/null || true
+            pkill -9 bind9 2>/dev/null || true
+            
+            # Libérer les ports
+            fuser -k 53/tcp 2>/dev/null || true
+            fuser -k 53/udp 2>/dev/null || true
+            
+            sleep 2
+            
+            # Vérifier
+            if lsof -i :53 >/dev/null 2>&1; then
+              echo "AVERTISSEMENT: Port 53 toujours occupé"
+              lsof -i :53
+            else
+              echo "Port 53 libéré avec succès"
+            fi
+          register: port_cleanup
+          changed_when: "'libéré avec succès' in port_cleanup.stdout"
+          ignore_errors: yes
+    
+    # ==========================================
+    # INSTALLATION DNSMASQ (par défaut)
+    # ==========================================
+    - name: Bloc - Installation dnsmasq
+      when: 
+        - install_dns | bool
+        - dns_type == 'dnsmasq'
+      block:
+        - name: Inclure le playbook dnsmasq
+          include_tasks: dns_debian.yml
+    
+    # ==========================================
+    # INSTALLATION BIND9 (alternative)
+    # ==========================================
+    - name: Bloc - Installation BIND9
+      when: 
+        - install_dns | bool
+        - dns_type == 'bind9'
+      block:
+        - name: Utiliser le rôle mit-dns pour BIND9
+          include_role:
+            name: mit-dns
+          when: install_dns | default(false)
+    
+    # ==========================================
+    # SKIP SI install_dns = false
+    # ==========================================
+    - name: Message si installation DNS désactivée
+      debug:
+        msg: "⏭️  Installation DNS ignorée (install_dns={{ install_dns }})"
+      when: not (install_dns | bool)
+  
+  post_tasks:
+    - name: Vérification finale
+      when: install_dns | bool
+      block:
+        - name: Vérifier le service DNS actif
+          shell: |
+            if systemctl is-active --quiet dnsmasq; then
+              echo "dnsmasq"
+            elif systemctl is-active --quiet named; then
+              echo "named"
+            elif systemctl is-active --quiet bind9; then
+              echo "bind9"
+            else
+              echo "aucun"
+            fi
+          register: active_dns
+          changed_when: false
+        
+        - name: Afficher le service DNS actif
+          debug:
+            msg: "✅ Service DNS actif: {{ active_dns.stdout }}"
+        
+        - name: Test de résolution DNS
+          command: nslookup google.com 127.0.0.1
+          register: dns_test
+          changed_when: false
+          failed_when: false
+        
+        - name: Résultat du test DNS
+          debug:
+            msg: "{{ '✅ Test DNS: OK' if dns_test.rc == 0 else '❌ Test DNS: ÉCHEC' }}"

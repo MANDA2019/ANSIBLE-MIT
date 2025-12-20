@@ -1,0 +1,18 @@
+---
+- name: ✅ Vérifier TLS (skip si OK)
+  hosts: pc2
+  tasks:
+    - name: Nginx running ?
+      systemd:
+        name: nginx
+        state: started
+      register: nginx_status
+      
+    - name: Page MIT présente ?
+      stat:
+        path: /var/www/html/index.html
+      register: page_status
+      
+    - name: Statut TLS
+      debug:
+        msg: "✅ TLS OK : Nginx={{ nginx_status.state }} Page={{ page_status.stat.exists }}"

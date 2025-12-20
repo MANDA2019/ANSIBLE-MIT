@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+
+{% block title %}Hôtes - Ansible MIT{% endblock %}
+
+{% block content %}
+<div class="header">
+    <h2>🖥️ Gestion des hôtes</h2>
+    <p style="color: #666;">Liste des serveurs configurés</p>
+</div>
+
+<div class="content-card">
+    <h3 style="margin-bottom: 1.5rem; color: #667eea;">📋 Hôtes disponibles</h3>
+    
+    {% if hosts %}
+    <table>
+        <thead>
+            <tr>
+                <th>Nom</th>
+                <th>Actions</th>
+                <th>Statut</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for host in hosts %}
+            <tr>
+                <td><strong>{{ host }}</strong></td>
+                <td>
+                    <button class="btn btn-primary" style="padding: 0.5rem 1rem; font-size: 0.9rem;" onclick="pingHost('{{ host }}')">
+                        📡 Ping
+                    </button>
+                    <button class="btn btn-info" style="padding: 0.5rem 1rem; font-size: 0.9rem;" onclick="getHostInfo('{{ host }}')">
+                        ℹ️ Info
+                    </button>
+                </td>
+                <td id="status-{{ host }}">
+                    <span class="badge badge-warning">⏳ En attente</span>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p style="text-align: center; color: #666;">Aucun hôte configuré</p>
+    {% endif %}
+</div>
+
+<div class="content-card">
+    <h3 style="margin-bottom: 1.5rem; color: #667eea;">💻 Informations</h3>
+    <div id="output" class="log-output">Sélectionnez un hôte pour voir les détails...</div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    async function pingHost(host) {
+        const statusEl = document.getElementById(`status-${host}`);
+        statusEl.innerHTML = '<span class="badge badge-warning">⏳ Test...</span>';
+
+        try {
+            const response = await fetch('/api/ping', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ hosts: host })
+            });
+
+            const result = await response.json();
+
+            if (result.success) {
+                statusEl.innerHTML = '<span class="badge badge-success">✅ En ligne</span>';
+            } else {
+                statusEl.innerHTML = '<span class="badge badge-danger">❌ Hors ligne</span>';
+            }
+
+            document.getElementById('output').textContent = result.output || result.error;
+        } catch (error) {
+            statusEl.innerHTML = '<span class="badge badge-danger">❌ Erreur</span>';
+        }
+    }
+
+    async function getHostInfo(host) {
+        document.getElementById('output').textContent = '🔄 Récupération des informations...';
+
+        try {
+            const response = await fetch(`/api/host/${host}`);
+            const result = await response.json();
+
+            document.getElementById('output').textContent = result.output || result.error;
+        } catch (error) {
+            document.getElementById('output').textContent = '❌ Erreur: ' + error.message;
+        }
+    }
+
+    // Tester tous les hôtes au chargement
+    window.addEventListener('load', () => {
+        {% for host in hosts %}
+        setTimeout(() => pingHost('{{ host }}'), {{ loop.index0 * 500 }});
+        {% endfor %}
+    });
+</script>
+{% endblock %}

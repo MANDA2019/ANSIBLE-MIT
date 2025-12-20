@@ -1,0 +1,35 @@
+# ============================================
+# INVENTAIRE ANSIBLE
+# ============================================
+
+# --- GROUPE LOCAL (pour tester sur votre machine) ---
+[local]
+localhost ansible_connection=local ansible_python_interpreter=/usr/bin/python3
+
+# --- GROUPE REMOTE (serveurs distants) ---
+[remote]
+mahatoky ansible_host=192.168.1.21 ansible_user=manda
+router1 ansible_host=192.168.1.1 ansible_user=admin
+pc1 ansible_host=192.168.1.21 ansible_user=manda
+pc2 ansible_host=192.168.1.29 ansible_user=nax
+
+[dns_servers]
+pc1 ansible_host=192.168.1.21 ansible_user=manda
+
+[webservers]
+pc2 ansible_host=192.168.1.29 ansible_user=nax
+localhost ansible_connection=local
+
+[routers]
+router1 ansible_host=192.168.1.1 ansible_user=admin
+# --- GROUPE POUR VMs (si vous utilisez VirtualBox/VMware) ---
+# Décommentez et modifiez les IPs selon vos VMs
+# [vms]
+# vm1 ansible_host=192.168.56.101 ansible_user=ubuntu
+# vm2 ansible_host=192.168.56.102 ansible_user=ubuntu
+# vm3 ansible_host=192.168.56.103 ansible_user=ubuntu
+
+# --- TOUS LES SERVEURS ---
+[all_servers:children]
+local
+remote

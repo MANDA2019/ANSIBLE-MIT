@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+
+{% block title %}Exécuter - Ansible MIT{% endblock %}
+
+{% block content %}
+<div class="header">
+    <h2>▶️ Exécution des playbooks</h2>
+    <p style="color: #666;">Choisissez une action et des hôtes cibles</p>
+</div>
+
+<div class="content-card">
+    <h3 style="margin-bottom: 1.5rem; color: #667eea;">🎯 Configuration</h3>
+    
+    <div style="margin-bottom: 1.5rem;">
+        <label style="display: block; margin-bottom: 0.5rem; font-weight: 600;">Hôtes cibles:</label>
+        <select id="targetHosts" style="width: 100%; padding: 0.8rem; border: 1px solid #e2e8f0; border-radius: 8px; font-size: 1rem;">
+            <option value="all">🌐 Tous les hôtes</option>
+            {% for host in hosts %}
+            <option value="{{ host }}">🖥️ {{ host }}</option>
+            {% endfor %}
+        </select>
+    </div>
+
+    <h4 style="margin: 2rem 0 1rem 0; color: #667eea;">📋 Actions disponibles</h4>
+
+    <div style="display: grid; gap: 1rem;">
+        <!-- Système -->
+        <div style="background: #f7fafc; padding: 1.5rem; border-radius: 12px; border-left: 4px solid #667eea;">
+            <h4 style="margin-bottom: 0.8rem;">🔄 Système</h4>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.8rem;">
+                <button class="btn btn-primary" onclick="execute('update')">📦 Mise à jour</button>
+                <button class="btn btn-primary" onclick="execute('cleanup')">🧹 Nettoyage</button>
+                <button class="btn btn-primary" onclick="execute('system')">🔄 Système complet</button>
+            </div>
+        </div>
+
+        <!-- Réseau -->
+        <div style="background: #f7fafc; padding: 1.5rem; border-radius: 12px; border-left: 4px solid #48bb78;">
+            <h4 style="margin-bottom: 0.8rem;">🌐 Réseau et Sécurité</h4>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.8rem;">
+                <button class="btn btn-success" onclick="execute('network')">🌐 Configuration réseau</button>
+                <button class="btn btn-success" onclick="execute('dns')">🌍 DNS (BIND9)</button>
+                <button class="btn btn-warning" onclick="execute('ssh')">🔐 SSH Hardening</button>
+                <button class="btn btn-info" onclick="execute('tls')">🔒 TLS/HTTPS</button>
+            </div>
+        </div>
+
+        <!-- Base de données -->
+        <div style="background: #f7fafc; padding: 1.5rem; border-radius: 12px; border-left: 4px solid #ed8936;">
+            <h4 style="margin-bottom: 0.8rem;">🗄️ Base de données</h4>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.8rem;">
+                <button class="btn btn-warning" onclick="execute('mariadb')">🗄️ MariaDB</button>
+            </div>
+        </div>
+
+        <!-- Déploiement complet -->
+        <div style="background: #f7fafc; padding: 1.5rem; border-radius: 12px; border-left: 4px solid #f56565;">
+            <h4 style="margin-bottom: 0.8rem;">🚀 Déploiement</h4>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.8rem;">
+                <button class="btn btn-danger" onclick="execute('full')">🚀 Tout déployer</button>
+                <button class="btn" style="background: #9f7aea; color: white;" onclick="ping()">📡 Tester connexion</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="content-card">
+    <h3 style="margin-bottom: 1.5rem; color: #667eea;">💻 Logs d'exécution</h3>
+    <div id="output" class="log-output">Prêt à exécuter...</div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    function execute(action) {
+        const hosts = document.getElementById('targetHosts').value;
+        executeAction(action, hosts);
+    }
+
+    function ping() {
+        const hosts = document.getElementById('targetHosts').value;
+        pingHosts(hosts);
+    }
+</script>
+{% endblock %}

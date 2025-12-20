@@ -1,0 +1,6 @@
+---
+- name: Test role mit-ssh
+  hosts: all
+  become: yes
+  roles:
+    - mit-ssh

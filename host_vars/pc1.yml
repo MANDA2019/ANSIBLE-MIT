@@ -1,0 +1,36 @@
+# Configuration réseau
+interface_name: 'ens33'
+new_ip: '192.168.1.21'
+gateway: '192.168.1.1'
+dns_primary: '8.8.8.8'
+dns_secondary: '8.8.4.4'
+
+# Options de déploiement
+configure_network: true
+install_mariadb: true
+install_dns: true        # NOUVEAU
+enable_https: false      # NOUVEAU (pas de web sur PC1)
+
+# DNS Configuration (NOUVEAU)
+dns_domain: 'mit.mg'
+dns_zones:
+  - name: mit.mg
+    type: master
+    records:
+      - { name: '@', type: 'A', value: '192.168.1.21' }
+      - { name: 'pc1', type: 'A', value: '192.168.1.21' }
+      - { name: 'pc2', type: 'A', value: '192.168.1.22' }
+      - { name: 'web', type: 'A', value: '192.168.1.22' }
+      - { name: 'db', type: 'CNAME', value: 'pc1.mit.mg.' }
+
+# SSH Configuration (NOUVEAU)
+ssh_port: 22
+ssh_permit_root_login: 'no'
+ssh_password_authentication: 'no'
+ssh_authorized_keys:
+  - "ssh-rsa AAAAB3NzaC1yc... manda@mit.mg"
+
+# Bases de données
+databases:
+  - name: production_db
+  - name: development_db

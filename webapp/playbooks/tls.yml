@@ -1,0 +1,104 @@
+---
+- name: 🔒 Configuration TLS/HTTPS (Dashboard)
+  hosts: all
+  become: yes
+  gather_facts: yes
+  vars:
+    tls_domain: "pc2.local"
+    ansible_python_interpreter: /usr/bin/python3
+  tasks:
+    - name: Nettoyer ports 80/443
+      shell: |
+        systemctl stop nginx apache2 || true
+        fuser -k 80/tcp 443/tcp || true
+      ignore_errors: yes
+
+    - name: Installer Nginx
+      apt:
+        name: nginx
+        state: present
+        update_cache: yes
+
+    - name: Créer dossier SSL
+      file:
+        path: /etc/nginx/ssl
+        state: directory
+        mode: '0755'
+
+    - name: Générer certificat auto-signé
+      shell: |
+        openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+        -keyout /etc/nginx/ssl/{{ tls_domain }}.key \
+        -out /etc/nginx/ssl/{{ tls_domain }}.crt \
+        -subj "/C=FR/ST=MIT/L=Antananarivo/O=MIT/CN={{ tls_domain }}"
+      args:
+        creates: /etc/nginx/ssl/{{ tls_domain }}.crt
+
+    - name: Permissions SSL
+      file:
+        path: /etc/nginx/ssl/{{ item }}
+        mode: '0600'
+        owner: root
+        group: root
+      loop:
+        - "{{ tls_domain }}.key"
+        - "{{ tls_domain }}.crt"
+
+    - name: Créer page MIT
+      copy:
+        content: |
+          <!DOCTYPE html>
+          <html><head><title>MIT TLS OK</title></head>
+          <body style="font-family:Arial;text-align:center;padding:50px;background:#3b82f6;color:white;">
+            <h1>🎉 Mention Informatique et Technologie</h1>
+            <h2>TLS/HTTPS Dashboard ✅</h2>
+            <p>pc2.local - Nginx + SSL fonctionnel !</p>
+          </body></html>
+        dest: /var/www/html/index.html
+
+    - name: Config Nginx HTTPS
+      copy:
+        content: |
+          server {
+              listen 80;
+              server_name {{ tls_domain }};
+              return 301 https://$host$request_uri;
+          }
+          server {
+              listen 443 ssl;
+              server_name {{ tls_domain }};
+              ssl_certificate /etc/nginx/ssl/{{ tls_domain }}.crt;
+              ssl_certificate_key /etc/nginx/ssl/{{ tls_domain }}.key;
+              root /var/www/html;
+              index index.html;
+              location / {
+                  try_files $uri $uri/ =404;
+              }
+          }
+        dest: /etc/nginx/sites-available/{{ tls_domain }}
+
+    - name: Supprimer default
+      file:
+        path: /etc/nginx/sites-enabled/default
+        state: absent
+
+    - name: Activer site TLS
+      file:
+        src: /etc/nginx/sites-available/{{ tls_domain }}
+        dest: /etc/nginx/sites-enabled/{{ tls_domain }}
+        state: link
+
+    - name: Test config Nginx
+      shell: nginx -t
+      register: nginx_test
+      failed_when: false
+
+    - name: Afficher test config
+      debug:
+        msg: "{{ nginx_test.stdout }}"
+
+    - name: Redémarrer Nginx
+      systemd:
+        name: nginx
+        state: restarted
+        enabled: yes

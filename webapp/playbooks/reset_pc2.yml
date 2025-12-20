@@ -1,0 +1,56 @@
+---
+- name: 🗑️ RESET COMPLET pc2 (DNS + TLS + Nginx)
+  hosts: pc2
+  become: yes
+  tasks:
+    # SUPPRIMER Nginx + configs
+    - name: Arrêter/supprimer Nginx
+      systemd:
+        name: nginx
+        state: stopped
+        enabled: no
+      ignore_errors: yes
+      
+    - name: Purger Nginx
+      apt:
+        name: nginx*
+        state: absent
+        purge: yes
+        
+    - name: Supprimer configs Nginx
+      file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /etc/nginx/sites-enabled/pc2.local
+        - /etc/nginx/sites-enabled/default
+        - /etc/nginx/sites-available/default
+        - /etc/nginx/sites-available/pc2.local
+        - /etc/nginx/ssl/
+        
+    # NETTOYER DNS complet
+    - name: Supprimer TOUS pc2 de /etc/hosts
+      lineinfile:
+        path: /etc/hosts
+        regexp: '.*(pc2|mit-pc2).*'
+        state: absent
+        
+    - name: Restart NetworkManager (DNS cache)
+      systemd:
+        name: NetworkManager
+        state: restarted
+        
+    - name: Reload connections NM
+      shell: nmcli con reload && sleep 3
+      
+    # Nettoyer page web
+    - name: Supprimer page test
+      file:
+        path: /var/www/html/index.html
+        state: absent
+        
+    - name: Recréer /var/www/html vide
+      file:
+        path: /var/www/html
+        state: directory
+        mode: '0755'

@@ -1,0 +1,12 @@
+---
+- name: 🔒 Configuration TLS/HTTPS
+  hosts: pc2                    # ← Cible directement pc2
+  become: yes
+  
+  roles:
+    - role: mit-tls             # ← Plus de when ici
+      vars:                     # ← Variables explicites
+        tls_domain: "pc2.local"
+        tls_email: "admin@example.com"
+        tls_auto_renew: false
+        enable_https: true       # ← Active explicitement

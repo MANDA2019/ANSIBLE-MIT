@@ -1,0 +1,18 @@
+options {
+    directory "/var/cache/bind";
+
+    recursion yes;
+    allow-recursion { any; };
+    
+    listen-on { any; };
+    listen-on-v6 { any; };
+
+    forwarders {
+{% for forwarder in dns_forwarders %}
+        {{ forwarder }};
+{% endfor %}
+    };
+
+    dnssec-validation auto;
+    auth-nxdomain no;
+};

@@ -1,0 +1,31 @@
+# Configuration réseau
+interface_name: 'ens33'
+new_ip: '192.168.1.22'
+gateway: '192.168.1.1'
+dns_primary: '192.168.1.21'  # Utilise PC1 comme DNS
+dns_secondary: '8.8.8.8'
+
+# Options de déploiement
+configure_network: true
+install_mariadb: false
+install_dns: false
+enable_https: true       # NOUVEAU (serveur web)
+
+# SSH Configuration (NOUVEAU)
+ssh_port: 22
+ssh_permit_root_login: 'no'
+ssh_password_authentication: 'no'
+ssh_authorized_keys:
+  - "ssh-rsa AAAAB3NzaC1yc... mimi@mit.mg"
+
+# TLS Configuration (NOUVEAU)
+tls_domain: 'mit.mg'
+tls_email: 'admin@mit.mg'
+tls_webserver: 'nginx'   # ou 'apache'
+tls_auto_renew: true
+
+# Nginx Configuration
+nginx_sites:
+  - server_name: 'web.mit.mg www.mit.mg'
+    root: '/var/www/html'
+    ssl: true

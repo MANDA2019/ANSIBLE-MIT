@@ -1,0 +1,36 @@
+---
+# Rôle: Nettoyage automatique des logs et fichiers temporaires
+# Ce rôle nettoie les fichiers temporaires et les anciens logs
+
+- name: Nettoyer le répertoire /tmp
+  shell: find /tmp -type f -atime +7 -delete
+  ignore_errors: yes
+  changed_when: false
+
+- name: Nettoyer le répertoire /var/tmp
+  shell: find /var/tmp -type f -atime +7 -delete
+  ignore_errors: yes
+  changed_when: false
+
+- name: Nettoyer les anciens journaux système (plus de 7 jours)
+  shell: journalctl --vacuum-time=7d
+  changed_when: false
+
+- name: Nettoyer les anciens fichiers de log
+  shell: find /var/log -type f -name "*.gz" -delete
+  ignore_errors: yes
+  changed_when: false
+
+- name: Nettoyer les anciens fichiers log rotatés
+  shell: find /var/log -type f -name "*.1" -delete
+  ignore_errors: yes
+  changed_when: false
+
+- name: Vider le cache APT
+  shell: apt-get clean
+  changed_when: false
+
+- name: Supprimer les paquets orphelins
+  apt:
+    autoremove: yes
+    purge: yes

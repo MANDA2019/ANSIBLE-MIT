@@ -1,0 +1,9 @@
+- name: 🌐 Configuration réseau
+  hosts: all
+  become: yes
+  
+  tasks:
+    - name: "Configuration réseau statique"
+      include_tasks: ../roles/network.yml
+      when: configure_network | default(false)
+      tags: network

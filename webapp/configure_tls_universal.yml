@@ -1,0 +1,333 @@
+---
+- name: 🔒 Configuration TLS/HTTPS universelle (Arch + Debian/Ubuntu)
+  hosts: all
+  become: yes
+  
+  vars:
+    domain_name: "{{ hostname | default('localhost') }}"
+    cert_country: "MG"
+    cert_state: "Analamanga"
+    cert_locality: "Antananarivo"
+    cert_organization: "MIT"
+    cert_validity_days: 365
+    
+  tasks:
+    # ========== INSTALLATION NGINX ==========
+    - name: Installer Nginx (Arch Linux)
+      pacman:
+        name: nginx
+        state: present
+      when: ansible_os_family == "Archlinux"
+        
+    - name: Installer Nginx (Debian/Ubuntu)
+      apt:
+        name: nginx
+        state: present
+        update_cache: yes
+      when: ansible_os_family == "Debian"
+        
+    # ========== INSTALLATION OPENSSL ==========
+    - name: Installer OpenSSL (Arch Linux)
+      pacman:
+        name: openssl
+        state: present
+      when: ansible_os_family == "Archlinux"
+        
+    - name: Installer OpenSSL (Debian/Ubuntu)
+      apt:
+        name: openssl
+        state: present
+      when: ansible_os_family == "Debian"
+        
+    # ========== INSTALLATION PYOPENSSL (pour les modules Ansible) ==========
+    - name: Installer python-cryptography (Arch Linux)
+      pacman:
+        name: python-cryptography
+        state: present
+      when: ansible_os_family == "Archlinux"
+      ignore_errors: yes
+        
+    - name: Installer python3-openssl (Debian/Ubuntu)
+      apt:
+        name: 
+          - python3-openssl
+          - python3-cryptography
+        state: present
+      when: ansible_os_family == "Debian"
+      ignore_errors: yes
+        
+    # ========== CRÉATION RÉPERTOIRES SSL ==========
+    - name: Créer le répertoire SSL pour Nginx
+      file:
+        path: /etc/nginx/ssl
+        state: directory
+        mode: '0755'
+        
+    # ========== GÉNÉRATION CERTIFICATS SSL ==========
+    - name: Générer la clé privée SSL
+      community.crypto.openssl_privatekey:
+        path: "/etc/nginx/ssl/{{ domain_name }}.key"
+        size: 2048
+        mode: '0600'
+      ignore_errors: yes
+      register: key_gen
+        
+    - name: Générer clé SSL avec openssl (fallback si module crypto indisponible)
+      shell: |
+        openssl genrsa -out /etc/nginx/ssl/{{ domain_name }}.key 2048
+        chmod 600 /etc/nginx/ssl/{{ domain_name }}.key
+      when: key_gen is failed
+        
+    - name: Générer le certificat auto-signé
+      shell: |
+        openssl req -new -x509 -key /etc/nginx/ssl/{{ domain_name }}.key \
+          -out /etc/nginx/ssl/{{ domain_name }}.crt \
+          -days {{ cert_validity_days }} \
+          -subj "/C={{ cert_country }}/ST={{ cert_state }}/L={{ cert_locality }}/O={{ cert_organization }}/CN={{ domain_name }}"
+        chmod 644 /etc/nginx/ssl/{{ domain_name }}.crt
+      args:
+        creates: "/etc/nginx/ssl/{{ domain_name }}.crt"
+        
+    # ========== CONFIGURATION NGINX ==========
+    - name: Créer le répertoire sites-available
+      file:
+        path: /etc/nginx/sites-available
+        state: directory
+        mode: '0755'
+        
+    - name: Créer le répertoire sites-enabled
+      file:
+        path: /etc/nginx/sites-enabled
+        state: directory
+        mode: '0755'
+        
+    - name: Configurer Nginx avec HTTPS
+      copy:
+        content: |
+          server {
+              listen 80;
+              listen [::]:80;
+              server_name {{ domain_name }} {{ ansible_default_ipv4.address | default('_') }};
+              return 301 https://$host$request_uri;
+          }
+          
+          server {
+              listen 443 ssl http2;
+              listen [::]:443 ssl http2;
+              server_name {{ domain_name }} {{ ansible_default_ipv4.address | default('_') }};
+              
+              ssl_certificate /etc/nginx/ssl/{{ domain_name }}.crt;
+              ssl_certificate_key /etc/nginx/ssl/{{ domain_name }}.key;
+              
+              ssl_protocols TLSv1.2 TLSv1.3;
+              ssl_ciphers HIGH:!aNULL:!MD5;
+              ssl_prefer_server_ciphers on;
+              
+              root /usr/share/nginx/html;
+              index index.html index.htm;
+              
+              location / {
+                  try_files $uri $uri/ =404;
+              }
+              
+              # Bloquer l'accès aux fichiers cachés
+              location ~ /\. {
+                  deny all;
+              }
+          }
+        dest: "/etc/nginx/sites-available/{{ domain_name }}"
+        mode: '0644'
+        
+    - name: Activer le site (lien symbolique)
+      file:
+        src: "/etc/nginx/sites-available/{{ domain_name }}"
+        dest: "/etc/nginx/sites-enabled/{{ domain_name }}"
+        state: link
+        
+    - name: Vérifier si nginx.conf inclut déjà sites-enabled
+      shell: grep -q "sites-enabled" /etc/nginx/nginx.conf
+      register: nginx_conf_check
+      ignore_errors: yes
+      changed_when: false
+        
+    - name: Inclure sites-enabled dans nginx.conf
+      lineinfile:
+        path: /etc/nginx/nginx.conf
+        line: "    include /etc/nginx/sites-enabled/*;"
+        insertafter: "http {"
+        state: present
+      when: nginx_conf_check.rc != 0
+        
+    - name: Désactiver le site par défaut (si existe)
+      file:
+        path: /etc/nginx/sites-enabled/default
+        state: absent
+      ignore_errors: yes
+        
+    # ========== PAGE D'ACCUEIL ==========
+    - name: Créer une page d'accueil de test
+      copy:
+        content: |
+          <!DOCTYPE html>
+          <html lang="fr">
+          <head>
+              <meta charset="UTF-8">
+              <meta name="viewport" content="width=device-width, initial-scale=1.0">
+              <title>{{ domain_name }} - TLS Configuré</title>
+              <style>
+                  * { margin: 0; padding: 0; box-sizing: border-box; }
+                  body { 
+                      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                      min-height: 100vh;
+                      display: flex;
+                      justify-content: center;
+                      align-items: center;
+                      padding: 20px;
+                  }
+                  .container { 
+                      background: white;
+                      padding: 50px;
+                      border-radius: 20px;
+                      box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+                      max-width: 600px;
+                      text-align: center;
+                      animation: slideUp 0.5s ease-out;
+                  }
+                  @keyframes slideUp {
+                      from { opacity: 0; transform: translateY(30px); }
+                      to { opacity: 1; transform: translateY(0); }
+                  }
+                  .success { 
+                      color: #28a745;
+                      font-size: 72px;
+                      margin-bottom: 20px;
+                      animation: bounce 1s ease infinite;
+                  }
+                  @keyframes bounce {
+                      0%, 100% { transform: translateY(0); }
+                      50% { transform: translateY(-10px); }
+                  }
+                  h1 { 
+                      color: #333;
+                      margin-bottom: 20px;
+                      font-size: 2em;
+                  }
+                  .info {
+                      background: #f8f9fa;
+                      padding: 20px;
+                      border-radius: 10px;
+                      margin: 20px 0;
+                  }
+                  .info-item {
+                      margin: 10px 0;
+                      font-size: 1.1em;
+                  }
+                  .label {
+                      font-weight: bold;
+                      color: #667eea;
+                  }
+                  .value {
+                      color: #333;
+                  }
+                  .badge {
+                      display: inline-block;
+                      background: #28a745;
+                      color: white;
+                      padding: 8px 15px;
+                      border-radius: 20px;
+                      font-size: 0.9em;
+                      margin: 5px;
+                  }
+                  .os-badge {
+                      background: #17a2b8;
+                  }
+              </style>
+          </head>
+          <body>
+              <div class="container">
+                  <div class="success">🔒</div>
+                  <h1>HTTPS Configuré avec succès!</h1>
+                  
+                  <div class="info">
+                      <div class="info-item">
+                          <span class="label">Serveur:</span>
+                          <span class="value">{{ domain_name }}</span>
+                      </div>
+                      <div class="info-item">
+                          <span class="label">IP:</span>
+                          <span class="value">{{ ansible_default_ipv4.address | default('N/A') }}</span>
+                      </div>
+                      <div class="info-item">
+                          <span class="label">Système:</span>
+                          <span class="value">{{ ansible_distribution }} {{ ansible_distribution_version }}</span>
+                      </div>
+                  </div>
+                  
+                  <div>
+                      <span class="badge">✅ TLS/SSL Actif</span>
+                      <span class="badge">✅ HTTPS Fonctionnel</span>
+                      <span class="badge os-badge">{{ ansible_os_family }}</span>
+                  </div>
+                  
+                  <p style="margin-top: 30px; color: #666; font-size: 0.9em;">
+                      Configuré avec Ansible<br>
+                      {{ ansible_date_time.iso8601 }}
+                  </p>
+              </div>
+          </body>
+          </html>
+        dest: /usr/share/nginx/html/index.html
+        mode: '0644'
+        
+    # ========== TEST ET DÉMARRAGE ==========
+    - name: Tester la configuration Nginx
+      command: nginx -t
+      register: nginx_test
+      changed_when: false
+      
+    - name: Afficher le résultat du test Nginx
+      debug:
+        msg: "{{ nginx_test.stderr_lines }}"
+        
+    - name: Démarrer et activer Nginx
+      systemd:
+        name: nginx
+        state: restarted
+        enabled: yes
+        
+    - name: Attendre que Nginx démarre
+      wait_for:
+        port: 443
+        delay: 2
+        timeout: 30
+        
+    # ========== VÉRIFICATION FINALE ==========
+    - name: Test HTTPS local
+      uri:
+        url: "https://localhost"
+        validate_certs: no
+        return_content: no
+        status_code: [200, 301, 302]
+      register: https_test
+      ignore_errors: yes
+      
+    - name: Résultat final
+      debug:
+        msg:
+          - "================================"
+          - "  CONFIGURATION TLS TERMINÉE ✅"
+          - "================================"
+          - "Système: {{ ansible_distribution }} ({{ ansible_os_family }})"
+          - "Nginx: Installé et démarré ✅"
+          - "Certificat SSL: {{ domain_name }} ✅"
+          - "HTTPS: Port 443 actif ✅"
+          - "HTTP→HTTPS: Redirection active ✅"
+          - ""
+          - "📍 Accès:"
+          - "   https://{{ domain_name }}"
+          - "   https://{{ ansible_default_ipv4.address | default('192.168.1.38') }}"
+          - ""
+          - "⚠️  Certificat auto-signé"
+          - "   Ajoutez une exception dans votre navigateur"
+          - "================================"

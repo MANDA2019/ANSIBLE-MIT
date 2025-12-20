@@ -1,0 +1,7 @@
+---
+- name: 🔌 Test de connectivité
+  hosts: all
+  gather_facts: no
+  tasks:
+    - name: Ping hôte
+      ping:

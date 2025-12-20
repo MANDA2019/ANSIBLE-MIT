@@ -1,0 +1,6 @@
+- name: 🔐 Sécurisation SSH
+  hosts: all
+  become: yes
+  
+  roles:
+    - role: mit-ssh

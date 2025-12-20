@@ -1,0 +1,9 @@
+- name: 🗄️ Installation MariaDB
+  hosts: all
+  become: yes
+  
+  tasks:
+    - name: "Installation et configuration MariaDB"
+      include_tasks: ../roles/mariadb.yml
+      when: install_mariadb | default(false)
+      tags: mariadb

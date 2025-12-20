@@ -1,0 +1,18 @@
+;
+; Zone file for {{ dns_domain }}
+;
+$TTL    604800
+@       IN      SOA     dns1.{{ dns_domain }}. admin.{{ dns_domain }}. (
+                              2         ; Serial
+                         604800         ; Refresh
+                          86400         ; Retry
+                        2419200         ; Expire
+                         604800 )       ; Negative Cache TTL
+;
+; Name servers
+@       IN      NS      dns1.{{ dns_domain }}.
+
+; A records
+{% for record in dns_records %}
+{{ record.name }}    IN      {{ record.type }}    {{ record.ip }}
+{% endfor %}

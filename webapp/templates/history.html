@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+
+{% block title %}Historique - Ansible MIT{% endblock %}
+
+{% block content %}
+<div class="header">
+    <h2>📜 Historique des exécutions</h2>
+    <p style="color: #666;">Toutes les actions effectuées</p>
+</div>
+
+<div class="content-card">
+    <h3 style="margin-bottom: 1.5rem; color: #667eea;">📋 Dernières exécutions</h3>
+    
+    {% if history %}
+    <table>
+        <thead>
+            <tr>
+                <th>Date & Heure</th>
+                <th>Playbook</th>
+                <th>Hôtes</th>
+                <th>Tags</th>
+                <th>Statut</th>
+                <th>Action</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for entry in history %}
+            <tr>
+                <td>{{ entry.timestamp }}</td>
+                <td><code>{{ entry.playbook }}</code></td>
+                <td><strong>{{ entry.hosts }}</strong></td>
+                <td>
+                    {% if entry.tags %}
+                    <span class="badge" style="background: #e6fffa; color: #234e52;">{{ entry.tags }}</span>
+                    {% else %}
+                    -
+                    {% endif %}
+                </td>
+                <td>
+                    {% if entry.returncode == 0 %}
+                    <span class="badge badge-success">✅ Succès</span>
+                    {% else %}
+                    <span class="badge badge-danger">❌ Échec ({{ entry.returncode }})</span>
+                    {% endif %}
+                </td>
+                <td>
+                    <button class="btn btn-info" style="padding: 0.5rem 1rem; font-size: 0.85rem;" onclick="showDetails({{ loop.index0 }})">
+                        👁️ Détails
+                    </button>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p style="text-align: center; color: #666;">Aucune exécution enregistrée</p>
+    {% endif %}
+</div>
+
+<div class="content-card" id="details-card" style="display: none;">
+    <h3 style="margin-bottom: 1.5rem; color: #667eea;">📄 Détails de l'exécution</h3>
+    <div id="details-output" class="log-output"></div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    const history = {{ history|tojson }};
+
+    function showDetails(index) {
+        const entry = history[index];
+        const card = document.getElementById('details-card');
+        const output = document.getElementById('details-output');
+
+        let content = `=== Exécution du ${entry.timestamp} ===\n\n`;
+        content += `Playbook: ${entry.playbook}\n`;
+        content += `Hôtes: ${entry.hosts}\n`;
+        content += `Tags: ${entry.tags || 'Aucun'}\n`;
+        content += `Code retour: ${entry.returncode}\n\n`;
+        content += `--- STDOUT ---\n${entry.stdout}\n\n`;
+        if (entry.stderr) {
+            content += `--- STDERR ---\n${entry.stderr}\n`;
+        }
+
+        output.textContent = content;
+        card.style.display = 'block';
+        card.scrollIntoView({ behavior: 'smooth' });
+    }
+</script>
+{% endblock %}

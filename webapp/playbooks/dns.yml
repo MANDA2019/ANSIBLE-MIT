@@ -1,0 +1,18 @@
+---
+- name: 🌐 DNS {{ dns_domain }} → {{ ansible_host }}
+  hosts: hote
+  vars:
+    target_domain: "{{ dns_domain | default('pc.local') }}"
+  tasks:
+    - name: Installer dnsmasq
+      apt: name=dnsmasq state=present
+      
+    - name: Configurer DNS {{ target_domain }}
+      copy:
+        content: |
+          address=/.{{ target_domain }}/{{ ansible_host }}
+          cname=www.{{ target_domain }},{{ target_domain }}
+        dest: /etc/dnsmasq.d/{{ target_domain }}.conf
+        
+    - name: Redémarrer dnsmasq
+      systemd: name=dnsmasq state=restarted

@@ -1,0 +1,83 @@
+---
+# Test de notification email
+- name: Test notification par email
+  hosts: localhost
+  connection: local
+  gather_facts: yes
+  vars_files:
+    - secret.yml
+    - group_vars/remote.yml
+
+  tasks:
+    - name: Préparer le rapport d'exécution
+      set_fact:
+        rapport_date: '{{ ansible_date_time.iso8601 }}'
+        rapport_hostname: '{{ ansible_hostname }}'
+        rapport_ip: "{{ ansible_default_ipv4.address | default('N/A') }}"
+        rapport_os: '{{ ansible_distribution }} {{ ansible_distribution_version }}'
+        rapport_uptime: '{{ ansible_uptime_seconds | int // 3600 }} heures'
+
+    - name: Envoyer l'email de notification
+      community.general.mail:
+        host: '{{ smtp_host }}'
+        port: '{{ smtp_port }}'
+        username: '{{ smtp_user }}'
+        password: '{{ smtp_password }}'
+        to: '{{ email_to }}'
+        subject: '✅ Ansible - Test de notification'
+        subtype: html
+        body: |
+          <html>
+          <head>
+            <style>
+              body { font-family: Arial, sans-serif; background-color: #f5f5f5; padding: 20px; }
+              .container { background: white; border-radius: 10px; padding: 20px; max-width: 600px; margin: auto; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+              .header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 20px; border-radius: 10px 10px 0 0; text-align: center; }
+              .content { padding: 20px; }
+              .success { color: #27ae60; }
+              .info-table { width: 100%; border-collapse: collapse; margin: 20px 0; }
+              .info-table td { padding: 10px; border-bottom: 1px solid #eee; }
+              .info-table td:first-child { font-weight: bold; color: #666; width: 40%; }
+              .footer { text-align: center; color: #999; font-size: 12px; margin-top: 20px; }
+            </style>
+          </head>
+          <body>
+            <div class="container">
+              <div class="header">
+                <h1>📋 Test Notification Ansible</h1>
+              </div>
+              <div class="content">
+                <h2 class="success">✅ Configuration email réussie!</h2>
+                
+                <table class="info-table">
+                  <tr>
+                    <td>🖥️ Serveur</td>
+                    <td>{{ rapport_hostname }}</td>
+                  </tr>
+                  <tr>
+                    <td>🌐 Adresse IP</td>
+                    <td>{{ rapport_ip }}</td>
+                  </tr>
+                  <tr>
+                    <td>💻 Système</td>
+                    <td>{{ rapport_os }}</td>
+                  </tr>
+                  <tr>
+                    <td>📅 Date</td>
+                    <td>{{ rapport_date }}</td>
+                  </tr>
+                </table>
+                
+                <p>🎉 Félicitations ! Votre configuration email fonctionne correctement.</p>
+              </div>
+              <div class="footer">
+                <p>Projet Ansible - Maharavo L2</p>
+              </div>
+            </div>
+          </body>
+          </html>
+      delegate_to: localhost
+
+    - name: Confirmation
+      debug:
+        msg: '✅ Email envoyé avec succès à {{ email_to }}'

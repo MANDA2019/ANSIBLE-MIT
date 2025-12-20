@@ -1,0 +1,12 @@
+- name: 🔄 Mise à jour et nettoyage système
+  hosts: all
+  become: yes
+  
+  tasks:
+    - name: "Mise à jour système"
+      include_tasks: ../roles/update.yml
+      tags: update
+    
+    - name: "Nettoyage système"
+      include_tasks: ../roles/cleanup.yml
+      tags: cleanup

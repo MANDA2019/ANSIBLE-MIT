@@ -1,0 +1,88 @@
+---
+# ============================================
+# PLAYBOOK DE TEST - Pour tester sur localhost
+# ============================================
+# Utilisez ce playbook pour tester Ansible sans serveurs distants
+# Commande: ansible-playbook test_local.yml
+
+- name: Test Ansible sur localhost
+  hosts: local
+  become: yes
+
+  tasks:
+    # Test 1: Vérifier la connexion
+    - name: Test de connexion (ping)
+      ping:
+      register: ping_result
+
+    - name: Afficher le résultat du ping
+      debug:
+        msg: '✅ Connexion réussie!'
+
+    # Test 2: Informations système
+    - name: Récupérer les informations système
+      debug:
+        msg: |
+          📊 Informations système:
+          - Hostname: {{ ansible_hostname }}
+          - OS: {{ ansible_distribution }} {{ ansible_distribution_version }}
+          - Kernel: {{ ansible_kernel }}
+          - Architecture: {{ ansible_architecture }}
+          - CPU: {{ ansible_processor_count }} cores
+          - RAM: {{ ansible_memtotal_mb }} MB
+
+    # Test 3: Mise à jour du cache APT
+    - name: Mise à jour du cache APT (test)
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+      when: ansible_os_family == "Debian"
+
+    # Test 4: Créer un fichier de test
+    - name: Créer un fichier de test
+      copy:
+        content: |
+          # Fichier créé par Ansible
+          Date: {{ ansible_date_time.iso8601 }}
+          Hostname: {{ ansible_hostname }}
+          Test réussi!
+        dest: /tmp/ansible_test.txt
+        mode: '0644'
+
+    - name: Vérifier que le fichier a été créé
+      stat:
+        path: /tmp/ansible_test.txt
+      register: test_file
+
+    - name: Confirmer la création du fichier
+      debug:
+        msg: '✅ Fichier /tmp/ansible_test.txt créé avec succès!'
+      when: test_file.stat.exists
+
+    # Test 5: Lister les paquets installés (exemple)
+    - name: Compter les paquets installés
+      shell: dpkg -l | wc -l
+      register: pkg_count
+      changed_when: false
+      when: ansible_os_family == "Debian"
+
+    - name: Afficher le nombre de paquets
+      debug:
+        msg: '📦 Nombre de paquets installés: {{ pkg_count.stdout }}'
+      when: ansible_os_family == "Debian"
+
+    # Résumé final
+    - name: Résumé du test
+      debug:
+        msg: |
+
+          ========================================
+          ✅ TOUS LES TESTS ONT RÉUSSI!
+          ========================================
+
+          Vous pouvez maintenant:
+          1. Ajouter des VMs ou serveurs distants dans le fichier 'hosts'
+          2. Exécuter: ansible-playbook site.yml
+          3. Ou lancer l'interface web: cd webapp && python3 app.py
+
+          ========================================

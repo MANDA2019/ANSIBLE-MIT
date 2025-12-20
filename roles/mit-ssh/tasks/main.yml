@@ -1,0 +1,34 @@
+---
+- name: Mettre à jour apt
+  apt:
+    update_cache: yes
+    cache_valid_time: 3600
+  when: ansible_os_family == "Debian"
+
+- name: Installer OpenSSH Server
+  apt:
+    name: openssh-server
+    state: present
+    update_cache: yes
+
+- name: S'assurer que le service SSH est démarré
+  systemd:
+    name: ssh
+    state: started
+    enabled: yes
+
+- name: Configurer SSH pour accepter les connexions
+  lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: '^#?PermitRootLogin'
+    line: 'PermitRootLogin no'
+    state: present
+  notify: Restart SSH
+
+- name: Autoriser l'authentification par mot de passe (si nécessaire)
+  lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: '^#?PasswordAuthentication'
+    line: 'PasswordAuthentication yes'
+    state: present
+  notify: Restart SSH

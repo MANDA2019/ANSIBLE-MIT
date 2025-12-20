@@ -1,0 +1,60 @@
+---
+- name: 🔒 TLS/HTTPS (Debian/Ubuntu)
+  hosts: all
+  vars:
+    ansible_python_interpreter: /usr/bin/python3
+    domain_name: "{{ hostname }}"
+  become: yes
+  tasks:
+    - name: Vérifier Debian/Ubuntu
+      fail: 
+        msg: "Debian/Ubuntu seulement"
+      when: ansible_os_family != "Debian"
+
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+
+    - name: Installer NGINX + Certbot
+      apt:
+        name:
+          - nginx
+          - certbot
+          - python3-certbot-nginx
+        state: present
+
+    - name: Page MIT index.html
+      copy:
+        content: |
+          <h1>🚀 Projet MIT Réseaux S4</h1>
+          <p>Serveur: {{ ansible_hostname }} ({{ ansible_host }})</p>
+          <p>Domaine: {{ domain_name }}</p>
+        dest: /var/www/html/index.html
+
+    - name: NGINX virtual host
+      template:
+        src: nginx-site.j2
+        dest: /etc/nginx/sites-available/{{ domain_name }}
+      notify: restart nginx
+
+    - name: Enable site
+      file:
+        src: /etc/nginx/sites-available/{{ domain_name }}
+        dest: /etc/nginx/sites-enabled/{{ domain_name }}
+        state: link
+
+    - name: Certbot HTTPS
+      shell: certbot --nginx -d {{ domain_name }} --non-interactive --agree-tos
+      ignore_errors: yes
+
+    - name: Default site disabled
+      file:
+        path: /etc/nginx/sites-enabled/default
+        state: absent
+      notify: restart nginx
+
+  handlers:
+    - name: restart nginx
+      systemd:
+        name: nginx
+        state: restarted

@@ -1,0 +1,532 @@
+from flask import Flask, render_template, request, jsonify, redirect, url_for
+import subprocess
+import json
+import os
+from datetime import datetime
+import yaml
+
+app = Flask(__name__)
+app.config['SECRET_KEY'] = 'votre-cle-secrete-ici'
+
+# Chemin du projet Ansible
+ANSIBLE_DIR = '/home/maharavo/L2/projet_ansible'
+PLAYBOOK_DIR = os.path.join(ANSIBLE_DIR, 'playbooks')
+INVENTORY_FILE = os.path.join(ANSIBLE_DIR, 'hosts')
+
+# Historique des exécutions
+HISTORY_FILE = os.path.join(ANSIBLE_DIR, 'webapp', 'history.json')
+
+def load_history():
+    """Charger l'historique des exécutions"""
+    if os.path.exists(HISTORY_FILE):
+        with open(HISTORY_FILE, 'r') as f:
+            return json.load(f)
+    return []
+
+def save_history(entry):
+    """Sauvegarder une entrée dans l'historique"""
+    history = load_history()
+    history.insert(0, entry)  # Ajouter au début
+    history = history[:50]  # Garder seulement les 50 dernières
+    with open(HISTORY_FILE, 'w') as f:
+        json.dump(history, f, indent=2)
+
+def get_hosts():
+    """Récupérer la liste des hôtes depuis l'inventaire"""
+    try:
+        result = subprocess.run(
+            ['ansible', 'all', '--list-hosts', '-i', INVENTORY_FILE],
+            capture_output=True,
+            text=True,
+            cwd=ANSIBLE_DIR
+        )
+        hosts = [line.strip() for line in result.stdout.split('\n') if line.strip() and 'hosts' not in line]
+        return hosts
+    except Exception as e:
+        return []
+
+def run_ansible_command(playbook, hosts='all', tags=None):
+    """Exécuter une commande Ansible"""
+    cmd = ['ansible-playbook', playbook, '-i', INVENTORY_FILE]
+    
+    if hosts != 'all':
+        cmd.extend(['--limit', hosts])
+    
+    if tags:
+        cmd.extend(['--tags', tags])
+    
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            cwd=ANSIBLE_DIR
+        )
+        
+        # Sauvegarder dans l'historique
+        entry = {
+            'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            'playbook': playbook,
+            'hosts': hosts,
+            'tags': tags,
+            'returncode': result.returncode,
+            'stdout': result.stdout,
+            'stderr': result.stderr
+        }
+        save_history(entry)
+        
+        return {
+            'success': result.returncode == 0,
+            'output': result.stdout,
+            'error': result.stderr
+        }
+    except Exception as e:
+        return {
+            'success': False,
+            'output': '',
+            'error': str(e)
+        }
+
+@app.route('/')
+def index():
+    """Page d'accueil - Dashboard"""
+    hosts = get_hosts()
+    history = load_history()[:5]  # 5 dernières exécutions
+    return render_template('index.html', hosts=hosts, history=history)
+
+@app.route('/hosts')
+def hosts_page():
+    """Page de gestion des hôtes"""
+    hosts = get_hosts()
+    return render_template('hosts.html', hosts=hosts)
+
+@app.route('/execute')
+def execute_page():
+    """Page d'exécution des playbooks"""
+    hosts = get_hosts()
+    return render_template('execute.html', hosts=hosts)
+
+@app.route('/history')
+def history_page():
+    """Page d'historique"""
+    history = load_history()
+    return render_template('history.html', history=history)
+
+@app.route('/api/execute', methods=['POST'])
+def api_execute():
+    """API pour exécuter un playbook"""
+    data = request.json
+    action = data.get('action')
+    hosts = data.get('hosts', 'all')
+    
+    # Mapping des actions vers les playbooks
+    playbook_map = {
+        'update': ('site.yml', 'update'),
+        'cleanup': ('site.yml', 'cleanup'),
+        'network': ('playbooks/network.yml', None),
+        'mariadb': ('playbooks/database.yml', None),
+        'dns': ('playbooks/dns.yml', None),
+        'ssh': ('playbooks/ssh.yml', None),
+        'tls': ('playbooks/tls.yml', None),
+        'full': ('site.yml', None),
+        'system': ('playbooks/system.yml', None),
+    }
+    
+    if action not in playbook_map:
+        return jsonify({'success': False, 'error': 'Action inconnue'})
+    
+    playbook, tags = playbook_map[action]
+    result = run_ansible_command(playbook, hosts, tags)
+    
+    return jsonify(result)
+
+@app.route('/api/ping', methods=['POST'])
+def api_ping():
+    """API pour tester la connexion aux hôtes"""
+    data = request.json
+    hosts = data.get('hosts', 'all')
+    
+    try:
+        result = subprocess.run(
+            ['ansible', hosts, '-m', 'ping', '-i', INVENTORY_FILE],
+            capture_output=True,
+            text=True,
+            cwd=ANSIBLE_DIR
+        )
+        
+        return jsonify({
+            'success': result.returncode == 0,
+            'output': result.stdout,
+            'error': result.stderr
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/api/stats')
+def api_stats():
+    """API pour obtenir des statistiques"""
+    history = load_history()
+    
+    total = len(history)
+    success = sum(1 for h in history if h['returncode'] == 0)
+    failed = total - success
+    
+    # Actions par type
+    actions = {}
+    for h in history:
+        playbook = os.path.basename(h['playbook'])
+        actions[playbook] = actions.get(playbook, 0) + 1
+    
+    return jsonify({
+        'total': total,
+        'success': success,
+        'failed': failed,
+        'actions': actions,
+        'last_execution': history[0]['timestamp'] if history else None
+    })
+
+@app.route('/api/host/<hostname>')
+def api_host_info(hostname):
+    """API pour obtenir des infos sur un hôte"""
+    try:
+        # Récupérer les facts de l'hôte
+        result = subprocess.run(
+            ['ansible', hostname, '-m', 'setup', '-i', INVENTORY_FILE],
+            capture_output=True,
+            text=True,
+            cwd=ANSIBLE_DIR
+        )
+        
+        return jsonify({
+            'success': result.returncode == 0,
+            'output': result.stdout,
+            'error': result.stderr
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+if __name__ == '__main__':
+    # Créer le fichier d'historique s'il n'existe pas
+    if not os.path.exists(HISTORY_FILE):
+        with open(HISTORY_FILE, 'w') as f:
+            json.dump([], f)
+    
+    app.run(debug=True, host='0.0.0.0', port=5000)
+
+
+# ============================================
+# FICHIER: webapp/requirements.txt
+# ============================================
+Flask==3.0.0
+PyYAML==6.0.1
+
+
+# ============================================
+# FICHIER: webapp/templates/base.html
+# ============================================
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Ansible MIT Dashboard{% endblock %}</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+
+        .container {
+            display: flex;
+            min-height: 100vh;
+        }
+
+        /* Sidebar */
+        .sidebar {
+            width: 250px;
+            background: rgba(255, 255, 255, 0.95);
+            padding: 2rem;
+            box-shadow: 2px 0 10px rgba(0,0,0,0.1);
+        }
+
+        .logo {
+            text-align: center;
+            margin-bottom: 2rem;
+            padding-bottom: 1rem;
+            border-bottom: 2px solid #667eea;
+        }
+
+        .logo h1 {
+            color: #667eea;
+            font-size: 1.5rem;
+        }
+
+        .nav-menu {
+            list-style: none;
+        }
+
+        .nav-item {
+            margin-bottom: 0.5rem;
+        }
+
+        .nav-link {
+            display: flex;
+            align-items: center;
+            padding: 0.8rem 1rem;
+            color: #333;
+            text-decoration: none;
+            border-radius: 8px;
+            transition: all 0.3s;
+        }
+
+        .nav-link:hover, .nav-link.active {
+            background: #667eea;
+            color: white;
+            transform: translateX(5px);
+        }
+
+        .nav-link .icon {
+            margin-right: 0.8rem;
+            font-size: 1.2rem;
+        }
+
+        /* Main content */
+        .main-content {
+            flex: 1;
+            padding: 2rem;
+            overflow-y: auto;
+        }
+
+        .header {
+            background: white;
+            padding: 1.5rem 2rem;
+            border-radius: 15px;
+            margin-bottom: 2rem;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+        }
+
+        .header h2 {
+            color: #667eea;
+            margin-bottom: 0.5rem;
+        }
+
+        .content-card {
+            background: white;
+            padding: 2rem;
+            border-radius: 15px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+            margin-bottom: 2rem;
+        }
+
+        /* Boutons */
+        .btn {
+            padding: 0.8rem 1.5rem;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 1rem;
+            transition: all 0.3s;
+            text-decoration: none;
+            display: inline-block;
+        }
+
+        .btn-primary {
+            background: #667eea;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #5568d3;
+            transform: translateY(-2px);
+        }
+
+        .btn-success { background: #48bb78; color: white; }
+        .btn-danger { background: #f56565; color: white; }
+        .btn-warning { background: #ed8936; color: white; }
+        .btn-info { background: #4299e1; color: white; }
+
+        /* Grille */
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+        }
+
+        .stat-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 1.5rem;
+            border-radius: 12px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+        }
+
+        .stat-card h3 {
+            font-size: 2rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .stat-card p {
+            opacity: 0.9;
+        }
+
+        /* Table */
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        th, td {
+            padding: 1rem;
+            text-align: left;
+            border-bottom: 1px solid #e2e8f0;
+        }
+
+        th {
+            background: #f7fafc;
+            font-weight: 600;
+            color: #667eea;
+        }
+
+        tr:hover {
+            background: #f7fafc;
+        }
+
+        /* Logs */
+        .log-output {
+            background: #1a202c;
+            color: #0f0;
+            padding: 1rem;
+            border-radius: 8px;
+            font-family: 'Courier New', monospace;
+            max-height: 400px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 0.3rem 0.8rem;
+            border-radius: 12px;
+            font-size: 0.85rem;
+            font-weight: 600;
+        }
+
+        .badge-success { background: #c6f6d5; color: #22543d; }
+        .badge-danger { background: #fed7d7; color: #742a2a; }
+        .badge-warning { background: #feebc8; color: #7c2d12; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <aside class="sidebar">
+            <div class="logo">
+                <h1>🎓 MIT Ansible</h1>
+                <p style="color: #666; font-size: 0.9rem;">Dashboard</p>
+            </div>
+            <nav>
+                <ul class="nav-menu">
+                    <li class="nav-item">
+                        <a href="{{ url_for('index') }}" class="nav-link {% if request.endpoint == 'index' %}active{% endif %}">
+                            <span class="icon">📊</span> Dashboard
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a href="{{ url_for('execute_page') }}" class="nav-link {% if request.endpoint == 'execute_page' %}active{% endif %}">
+                            <span class="icon">▶️</span> Exécuter
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a href="{{ url_for('hosts_page') }}" class="nav-link {% if request.endpoint == 'hosts_page' %}active{% endif %}">
+                            <span class="icon">🖥️</span> Hôtes
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a href="{{ url_for('history_page') }}" class="nav-link {% if request.endpoint == 'history_page' %}active{% endif %}">
+                            <span class="icon">📜</span> Historique
+                        </a>
+                    </li>
+                </ul>
+            </nav>
+        </aside>
+
+        <main class="main-content">
+            {% block content %}{% endblock %}
+        </main>
+    </div>
+
+    <script>
+        // Fonction pour exécuter une action
+        async function executeAction(action, hosts = 'all') {
+            const outputDiv = document.getElementById('output');
+            if (outputDiv) {
+                outputDiv.innerHTML = '🔄 Exécution en cours...\n';
+            }
+
+            try {
+                const response = await fetch('/api/execute', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action, hosts })
+                });
+
+                const result = await response.json();
+
+                if (outputDiv) {
+                    if (result.success) {
+                        outputDiv.innerHTML = '✅ Succès!\n\n' + result.output;
+                    } else {
+                        outputDiv.innerHTML = '❌ Erreur!\n\n' + result.error;
+                    }
+                }
+
+                // Recharger la page après 2 secondes
+                setTimeout(() => location.reload(), 2000);
+            } catch (error) {
+                if (outputDiv) {
+                    outputDiv.innerHTML = '❌ Erreur: ' + error.message;
+                }
+            }
+        }
+
+        // Fonction pour tester la connexion
+        async function pingHosts(hosts = 'all') {
+            const outputDiv = document.getElementById('output');
+            if (outputDiv) {
+                outputDiv.innerHTML = '🔄 Test de connexion...\n';
+            }
+
+            try {
+                const response = await fetch('/api/ping', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ hosts })
+                });
+
+                const result = await response.json();
+
+                if (outputDiv) {
+                    if (result.success) {
+                        outputDiv.innerHTML = '✅ Connexion réussie!\n\n' + result.output;
+                    } else {
+                        outputDiv.innerHTML = '❌ Échec de connexion!\n\n' + result.error;
+                    }
+                }
+            } catch (error) {
+                if (outputDiv) {
+                    outputDiv.innerHTML = '❌ Erreur: ' + error.message;
+                }
+            }
+        }
+    </script>
+
+    {% block scripts %}{% endblock %}
+</body>
+</html>

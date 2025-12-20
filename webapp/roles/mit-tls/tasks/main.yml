@@ -1,0 +1,245 @@
+- name: "🔒 TLS - Installation des prérequis"
+  apt:
+    name:
+      - certbot
+      - python3-certbot-nginx
+      - nginx
+      - openssl
+    state: present
+    update_cache: yes
+
+- name: "🔒 TLS - Créer répertoires SSL"
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  loop:
+    - /etc/nginx/ssl
+    - /var/www/certbot
+
+- name: "🔒 TLS - Arrêter Nginx temporairement pour Certbot"
+  systemd:
+    name: nginx
+    state: stopped
+  when: tls_auto_renew | default(false)
+
+- name: "🔒 TLS - Générer certificat Let's Encrypt"
+  command: >
+    certbot certonly --standalone
+    -d {{ tls_domain }}
+    -d www.{{ tls_domain }}
+    --email {{ tls_email }}
+    --agree-tos
+    --non-interactive
+    --preferred-challenges http
+  when: tls_auto_renew | default(false)
+  register: certbot_result
+  ignore_errors: yes
+
+- name: "🔒 TLS - Générer certificat auto-signé (développement)"
+  command: >
+    openssl req -x509 -nodes -days 365 -newkey rsa:2048
+    -keyout /etc/nginx/ssl/{{ tls_domain }}.key
+    -out /etc/nginx/ssl/{{ tls_domain }}.crt
+    -subj "/C=MG/ST=Antananarivo/L=Antananarivo/O=MIT/CN={{ tls_domain }}"
+  args:
+    creates: "/etc/nginx/ssl/{{ tls_domain }}.crt"
+  when: not (tls_auto_renew | default(false))
+
+- name: "🔒 TLS - Copier certificats Let's Encrypt vers Nginx"
+  copy:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    remote_src: yes
+    owner: root
+    group: root
+    mode: '0644'
+  loop:
+    - { src: '/etc/letsencrypt/live/{{ tls_domain }}/fullchain.pem', dest: '/etc/nginx/ssl/{{ tls_domain }}.crt' }
+    - { src: '/etc/letsencrypt/live/{{ tls_domain }}/privkey.pem', dest: '/etc/nginx/ssl/{{ tls_domain }}.key' }
+  when: tls_auto_renew | default(false) and certbot_result is succeeded
+  ignore_errors: yes
+
+- name: "🔒 TLS - Générer paramètres Diffie-Hellman"
+  command: openssl dhparam -out /etc/nginx/ssl/dhparam.pem 2048
+  args:
+    creates: /etc/nginx/ssl/dhparam.pem
+
+- name: "🔒 TLS - Configuration SSL Nginx (snippet)"
+  copy:
+    dest: /etc/nginx/snippets/ssl-params.conf
+    content: |
+      # SSL Configuration for MIT
+      ssl_protocols TLSv1.2 TLSv1.3;
+      ssl_prefer_server_ciphers on;
+      ssl_ciphers ECDHE-RSA-AES256-GCM-SHA512:DHE-RSA-AES256-GCM-SHA512:ECDHE-RSA-AES256-GCM-SHA384:DHE-RSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-SHA384;
+      ssl_ecdh_curve secp384r1;
+      ssl_session_timeout 10m;
+      ssl_session_cache shared:SSL:10m;
+      ssl_session_tickets off;
+      ssl_stapling on;
+      ssl_stapling_verify on;
+      
+      # Security headers
+      add_header Strict-Transport-Security "max-age=63072000; includeSubDomains; preload" always;
+      add_header X-Frame-Options "SAMEORIGIN" always;
+      add_header X-Content-Type-Options "nosniff" always;
+      add_header X-XSS-Protection "1; mode=block" always;
+      add_header Referrer-Policy "no-referrer-when-downgrade" always;
+      
+      # DH parameters
+      ssl_dhparam /etc/nginx/ssl/dhparam.pem;
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: "🔒 TLS - Configuration site HTTPS Nginx"
+  template:
+    src: nginx-https.conf.j2
+    dest: "/etc/nginx/sites-available/{{ tls_domain }}"
+    owner: root
+    group: root
+    mode: '0644'
+  notify: restart nginx
+
+- name: "🔒 TLS - Activer site HTTPS"
+  file:
+    src: "/etc/nginx/sites-available/{{ tls_domain }}"
+    dest: "/etc/nginx/sites-enabled/{{ tls_domain }}"
+    state: link
+  notify: restart nginx
+
+- name: "🔒 TLS - Supprimer configuration par défaut"
+  file:
+    path: /etc/nginx/sites-enabled/default
+    state: absent
+  notify: restart nginx
+
+- name: "🔒 TLS - Vérifier configuration Nginx"
+  command: nginx -t
+  changed_when: false
+  register: nginx_check
+
+- name: "🔒 TLS - Créer page d'accueil"
+  copy:
+    dest: /var/www/html/index.html
+    content: |
+      <!DOCTYPE html>
+      <html lang="fr">
+      <head>
+          <meta charset="UTF-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>🎓 MIT - Serveur sécurisé</title>
+          <style>
+              * { margin: 0; padding: 0; box-sizing: border-box; }
+              body {
+                  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                  height: 100vh;
+                  display: flex;
+                  justify-content: center;
+                  align-items: center;
+              }
+              .container {
+                  background: white;
+                  padding: 3rem;
+                  border-radius: 20px;
+                  box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+                  text-align: center;
+                  max-width: 600px;
+              }
+              h1 { color: #667eea; margin-bottom: 1rem; font-size: 2.5rem; }
+              .emoji { font-size: 4rem; margin-bottom: 1rem; }
+              .info {
+                  background: #f0f4ff;
+                  padding: 1.5rem;
+                  border-radius: 10px;
+                  margin: 1.5rem 0;
+              }
+              .status {
+                  display: flex;
+                  justify-content: space-around;
+                  margin-top: 2rem;
+              }
+              .status-item {
+                  padding: 1rem;
+                  background: #e8f5e9;
+                  border-radius: 8px;
+                  flex: 1;
+                  margin: 0 0.5rem;
+              }
+              .badge {
+                  display: inline-block;
+                  background: #4caf50;
+                  color: white;
+                  padding: 0.3rem 1rem;
+                  border-radius: 20px;
+                  font-size: 0.9rem;
+                  margin-top: 0.5rem;
+              }
+          </style>
+      </head>
+      <body>
+          <div class="container">
+              <div class="emoji">🔒</div>
+              <h1>🎓 MIT Server</h1>
+              <p style="color: #666; font-size: 1.1rem;">
+                  Mention Informatique et Technologie
+              </p>
+              
+              <div class="info">
+                  <h3>✅ Connexion sécurisée HTTPS</h3>
+                  <p style="margin-top: 0.5rem; color: #555;">
+                      Serveur: {{ ansible_hostname }}<br>
+                      IP: {{ ansible_host }}<br>
+                      Date: {{ ansible_date_time.date }}
+                  </p>
+              </div>
+              
+              <div class="status">
+                  <div class="status-item">
+                      <strong>🌐 DNS</strong>
+                      <div class="badge">Actif</div>
+                  </div>
+                  <div class="status-item">
+                      <strong>🔐 SSH</strong>
+                      <div class="badge">Sécurisé</div>
+                  </div>
+                  <div class="status-item">
+                      <strong>🔒 TLS</strong>
+                      <div class="badge">Actif</div>
+                  </div>
+              </div>
+          </div>
+      </body>
+      </html>
+    owner: www-data
+    group: www-data
+    mode: '0644'
+
+- name: "🔒 TLS - Configurer renouvellement automatique"
+  cron:
+    name: "Renouveler certificat Let's Encrypt"
+    minute: "0"
+    hour: "3"
+    job: "certbot renew --quiet --post-hook 'systemctl reload nginx'"
+  when: tls_auto_renew | default(false)
+
+- name: "🔒 TLS - Ouvrir ports HTTP/HTTPS dans firewall"
+  ufw:
+    rule: allow
+    port: "{{ item }}"
+    proto: tcp
+  loop:
+    - '80'
+    - '443'
+  when: ansible_facts['os_family'] == "Debian"
+
+- name: "🔒 TLS - Démarrer et activer Nginx"
+  systemd:
+    name: nginx
+    state: started
+    enabled: yes
+

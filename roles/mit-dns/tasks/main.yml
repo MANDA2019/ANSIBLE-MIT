@@ -1,0 +1,105 @@
+---
+- name: Mettre à jour cache APT
+  ansible.builtin.apt:
+    update_cache: true
+  ignore_errors: true
+
+- name: Installer dnsmasq
+  ansible.builtin.apt:
+    name: dnsmasq
+    state: present
+
+- name: Arrêter systemd-resolved (conflit port 53)
+  ansible.builtin.systemd:
+    name: systemd-resolved
+    state: stopped
+    enabled: false
+
+- name: Configurer /etc/systemd/resolved.conf (libérer port 53)
+  ansible.builtin.lineinfile:
+    path: /etc/systemd/resolved.conf
+    regexp: '^DNSStubListener='
+    line: 'DNSStubListener=no'
+    state: present
+  notify: restart systemd-resolved
+
+- name: Arrêter named/Bind9 (conflit port 53)
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    state: stopped
+    enabled: false
+  loop:
+    - named
+    - bind9
+
+- name: Sauvegarder config dnsmasq originale
+  ansible.builtin.copy:
+    src: /etc/dnsmasq.conf
+    dest: /etc/dnsmasq.conf.backup
+    remote_src: true
+    backup: true
+
+- name: Configurer dnsmasq principal
+  ansible.builtin.copy:
+    content: |
+      # DNS local lab.local
+      domain={{ dns_domain | default('lab.local') }}
+      domain-needed
+      bogus-priv
+      expand-hosts
+      
+      # Interface et binding
+      bind-interfaces
+      interface=lo
+      interface=eth0
+      except-interface=lo
+      
+      # Résolution récursive
+      server=8.8.8.8
+      server=8.8.4.4
+      
+      # Zones locales
+      address=/{{ dns_domain | default('lab.local') }}/192.168.56.10
+      address=/.local/192.168.56.10
+      
+      # Cache et performance
+      cache-size=1000
+      log-queries
+      log-facility=/var/log/dnsmasq.log
+    dest: /etc/dnsmasq.conf
+    mode: '0644'
+  notify: restart dnsmasq
+
+- name: Créer /etc/dnsmasq.d/lab.local
+  ansible.builtin.copy:
+    content: |
+      # Zone lab.local
+      address=/.lab.local/192.168.56.10
+      cname=dns1.lab.local,serveur1.lab.local
+    dest: /etc/dnsmasq.d/lab.local
+    mode: '0644'
+  notify: restart dnsmasq
+
+- name: Activer et démarrer dnsmasq
+  ansible.builtin.systemd:
+    name: dnsmasq
+    state: restarted
+    enabled: true
+
+- name: Vérifier dnsmasq écoute sur port 53
+  ansible.builtin.wait_for:
+    port: "{{ dns_port | default(53) }}"
+    host: 0.0.0.0
+    timeout: 30
+
+- name: Tester résolution locale
+  ansible.builtin.command: dig @127.0.0.1 {{ dns_domain | default('lab.local') }}
+  register: dig_result
+  changed_when: false
+
+- name: Afficher statut DNS
+  ansible.builtin.debug:
+    msg:
+      - "DNS {{ dns_domain | default('lab.local') }} déployé sur {{ inventory_hostname }}"
+      - "Test dig: {{ dig_result.rc == 0 }}"
+      - "Connexion: dig @{{ ansible_host }} {{ dns_domain | default('lab.local') }}"

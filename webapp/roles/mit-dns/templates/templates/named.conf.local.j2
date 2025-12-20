@@ -1,0 +1,15 @@
+//
+// Zone forward pour {{ dns_domain }}
+//
+zone "{{ dns_domain }}" {
+    type master;
+    file "/etc/bind/zones/db.{{ dns_domain }}";
+};
+
+//
+// Zone reverse
+//
+zone "{{ dns_reverse_zone }}" {
+    type master;
+    file "/etc/bind/zones/db.{{ dns_reverse_zone }}";
+};

@@ -1,0 +1,5 @@
+---
+tls_domain: "pc2.local"
+tls_email: "admin@mit.mg"
+tls_auto_renew: false  # true pour Let's Encrypt, false pour auto-signé
+tls_webserver: "nginx"

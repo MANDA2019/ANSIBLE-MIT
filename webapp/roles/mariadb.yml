@@ -1,0 +1,103 @@
+---
+# Rôle: Installation automatique de MariaDB et création de bases de données
+# Ce rôle installe MariaDB, le sécurise et crée des bases de données
+
+# ============================================
+# INSTALLATION DE MARIADB
+# ============================================
+
+- name: Installer les paquets MariaDB
+  apt:
+    name:
+      - mariadb-server
+      - mariadb-client
+      - python3-mysqldb # Nécessaire pour les modules Ansible MySQL
+    state: present
+    update_cache: yes
+
+- name: Démarrer et activer le service MariaDB
+  service:
+    name: mariadb
+    state: started
+    enabled: yes
+
+# ============================================
+# SÉCURISATION DE MARIADB
+# ============================================
+
+- name: Définir le mot de passe root MariaDB
+  mysql_user:
+    name: root
+    host: localhost
+    password: '{{ mariadb_root_password }}'
+    login_unix_socket: /var/run/mysqld/mysqld.sock
+    state: present
+  ignore_errors: yes
+
+- name: Créer le fichier .my.cnf pour l'utilisateur root
+  copy:
+    dest: /root/.my.cnf
+    content: |
+      [client]
+      user=root
+      password={{ mariadb_root_password }}
+    mode: '0600'
+
+- name: Supprimer les utilisateurs anonymes
+  mysql_user:
+    name: ''
+    host_all: yes
+    state: absent
+    login_unix_socket: /var/run/mysqld/mysqld.sock
+
+- name: Supprimer la base de données test
+  mysql_db:
+    name: test
+    state: absent
+    login_unix_socket: /var/run/mysqld/mysqld.sock
+
+- name: Interdire la connexion root à distance
+  mysql_user:
+    name: root
+    host: '{{ item }}'
+    state: absent
+    login_unix_socket: /var/run/mysqld/mysqld.sock
+  loop:
+    - '{{ ansible_hostname }}'
+    - '127.0.0.1'
+    - '::1'
+  ignore_errors: yes
+
+# ============================================
+# CRÉATION DES BASES DE DONNÉES
+# ============================================
+
+- name: Créer les bases de données
+  mysql_db:
+    name: '{{ item.name }}'
+    state: present
+    encoding: "{{ item.encoding | default('utf8mb4') }}"
+    collation: "{{ item.collation | default('utf8mb4_general_ci') }}"
+    login_unix_socket: /var/run/mysqld/mysqld.sock
+  loop: '{{ databases | default([]) }}'
+  when: databases is defined
+
+# ============================================
+# CRÉATION DES UTILISATEURS DE BASE DE DONNÉES
+# ============================================
+
+- name: Créer les utilisateurs de base de données
+  mysql_user:
+    name: '{{ item.username }}'
+    password: '{{ item.password }}'
+    host: "{{ item.host | default('localhost') }}"
+    priv: '{{ item.database }}.*:ALL'
+    state: present
+    login_unix_socket: /var/run/mysqld/mysqld.sock
+  loop: '{{ db_users | default([]) }}'
+  when: db_users is defined
+  no_log: true # Pour ne pas afficher les mots de passe dans les logs
+
+- name: Afficher le statut de MariaDB
+  debug:
+    msg: 'MariaDB installé et configuré avec succès sur {{ inventory_hostname }}'

@@ -1,0 +1,32 @@
+- name: 🚀 Déploiement complet infrastructure MIT
+  hosts: all
+  become: yes
+  
+  tasks:
+    - name: "📊 Afficher les hôtes ciblés"
+      debug:
+        msg: "Déploiement sur {{ inventory_hostname }} ({{ ansible_host }})"
+
+# Étape 1: Mise à jour et nettoyage
+- import_playbook: playbooks/system.yml
+  tags: ['system', 'base']
+
+# Étape 2: Configuration réseau
+- import_playbook: playbooks/network.yml
+  tags: ['network']
+
+# Étape 3: DNS
+- import_playbook: playbooks/dns.yml
+  tags: ['dns']
+
+# Étape 4: SSH Hardening
+- import_playbook: playbooks/ssh.yml
+  tags: ['ssh', 'security']
+
+# Étape 5: TLS/HTTPS
+- import_playbook: playbooks/tls.yml
+  tags: ['tls', 'https']
+
+# Étape 6: Base de données
+- import_playbook: playbooks/database.yml
+  tags: ['database', 'mariadb']

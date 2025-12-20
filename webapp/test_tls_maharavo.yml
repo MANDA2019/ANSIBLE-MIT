@@ -1,0 +1,66 @@
+---
+- name: 🔒 Test configuration TLS pour maharavo
+  hosts: all
+  become: yes
+  
+  tasks:
+    - name: Vérifier si Nginx est installé
+      command: which nginx
+      register: nginx_check
+      ignore_errors: yes
+      changed_when: false
+      
+    - name: Afficher statut Nginx
+      debug:
+        msg: "Nginx {{ 'installé ✅' if nginx_check.rc == 0 else 'NON installé ❌' }}"
+        
+    - name: Vérifier les certificats SSL existants
+      find:
+        paths:
+          - /etc/ssl/certs
+          - /etc/nginx/ssl
+        patterns: "*.crt,*.pem"
+      register: ssl_certs
+      ignore_errors: yes
+      
+    - name: Afficher les certificats trouvés
+      debug:
+        msg: "{{ ssl_certs.files | length }} certificat(s) trouvé(s)"
+      when: ssl_certs.files is defined
+        
+    - name: Lister les certificats
+      shell: |
+        echo "=== Certificats système ==="
+        ls -lh /etc/ssl/certs/*.crt 2>/dev/null | head -5 || echo "Aucun certificat système"
+        echo ""
+        echo "=== Certificats Nginx ==="
+        ls -lh /etc/nginx/ssl/ 2>/dev/null || echo "Pas de répertoire nginx/ssl"
+      register: cert_list
+      ignore_errors: yes
+      changed_when: false
+      
+    - name: Afficher la liste des certificats
+      debug:
+        var: cert_list.stdout_lines
+        
+    - name: Test connexion HTTPS locale
+      uri:
+        url: https://localhost
+        validate_certs: no
+        status_code: [200, 301, 302, 404]
+      register: https_test
+      ignore_errors: yes
+      
+    - name: Résultat test HTTPS
+      debug:
+        msg: "HTTPS {{ 'fonctionne ✅' if https_test.status is defined else 'non configuré ❌' }}"
+        
+    - name: Résumé
+      debug:
+        msg:
+          - "================================"
+          - "  RÉSUMÉ TEST TLS - MAHARAVO"
+          - "================================"
+          - "Nginx: {{ 'Installé ✅' if nginx_check.rc == 0 else 'Non installé ❌' }}"
+          - "HTTPS: {{ 'Actif ✅' if https_test.status is defined else 'Inactif ❌' }}"
+          - "================================"

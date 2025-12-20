@@ -1,0 +1,7 @@
+- name: 🌍 Configuration DNS BIND9
+  hosts: dns_servers
+  become: yes
+  
+  roles:
+    - role: mit-dns
+      when: install_dns | default(false)
